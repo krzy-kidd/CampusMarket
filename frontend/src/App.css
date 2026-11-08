@@ -2931,8 +2931,8 @@ h1 {
 
 .message-bubble-own {
   align-self: flex-end;
-  background: #edf5ef;
-  border-color: #d7e8da;
+  background: #fff3f5;
+  border-color: #ecced4;
   border-radius: 0.9rem 0.9rem 0.2rem 0.9rem;
 }
 
@@ -3041,7 +3041,7 @@ h1 {
 }
 
 .notification-card-unread {
-  background: #f7fbf8;
+  background: #fff8f9;
 }
 
 .notification-card-content {
@@ -3074,9 +3074,9 @@ h1 {
 }
 
 .notification-unread-label {
-  background: #e7f4eb;
+  background: var(--color-crimson-100);
   border-radius: 999px;
-  color: #205b3b;
+  color: var(--color-crimson-700);
   font-size: 0.68rem;
   font-weight: 700;
   padding: 0.2rem 0.5rem;

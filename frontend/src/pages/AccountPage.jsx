@@ -488,6 +488,7 @@ export function AccountPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [selectedCorName, setSelectedCorName] = useState('')
   const [loading, setLoading] = useState(true)
+  const [retryKey, setRetryKey] = useState(0)
 
   async function loadAccount() {
     try {
@@ -514,6 +515,7 @@ export function AccountPage() {
           setAccount(data.account)
           setVerification(data.verification)
           setLoading(false)
+          setError('')
         }
       })
       .catch((requestError) => {
@@ -526,7 +528,7 @@ export function AccountPage() {
         }
       })
     return () => { active = false }
-  }, [navigate])
+  }, [navigate, retryKey])
 
   async function sendVerificationEmail() {
     setBusy(true)
@@ -591,7 +593,25 @@ export function AccountPage() {
   }
 
   if (!account) {
-    return <main className="page-shell"><section className="status-card"><p className="form-error" role="alert">{error}</p></section></main>
+    return (
+      <main className="page-shell">
+        <section className="status-card">
+          <p className="form-error" role="alert">{error || 'Your account details are unavailable.'}</p>
+          <div className="status-actions">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setError('')
+                setLoading(true)
+                setRetryKey((key) => key + 1)
+              }}
+            >
+              Try again
+            </Button>
+          </div>
+        </section>
+      </main>
+    )
   }
 
   const canSubmit = account.email_verified

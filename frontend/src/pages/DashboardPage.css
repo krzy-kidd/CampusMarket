@@ -19,6 +19,18 @@
   margin-bottom: 1.5rem;
 }
 
+.dashboard-overview-warning {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.dashboard-overview-warning .form-error {
+  margin: 0;
+}
+
 .dashboard-heading h1 {
   font-size: clamp(2rem, 5vw, 3.2rem);
   letter-spacing: -0.055em;
@@ -200,7 +212,8 @@
 
 @media (max-width: 600px) {
   .dashboard-heading,
-  .dashboard-verification-callout {
+  .dashboard-verification-callout,
+  .dashboard-overview-warning {
     align-items: flex-start;
     flex-direction: column;
   }

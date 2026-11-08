@@ -31,6 +31,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [reloadKey, setReloadKey] = useState(0)
 
+  function retryOverview() {
+    setError('')
+    setLoading(true)
+    setReloadKey((key) => key + 1)
+  }
+
   useEffect(() => {
     let active = true
     Promise.allSettled([
@@ -66,22 +72,22 @@ export default function DashboardPage() {
         const optionalDataFailed = results.slice(1).some((result) => result.status === 'rejected')
         const verificationData = verification.status === 'fulfilled'
           ? verification.value.data || {}
-          : {}
+          : { status: 'unavailable' }
         const listingData = listings.status === 'fulfilled'
           && Array.isArray(listings.value.data?.listings)
           ? listings.value.data.listings
-          : []
+          : null
         const transactionData = transactions.status === 'fulfilled'
           && Array.isArray(transactions.value.data?.transactions)
           ? transactions.value.data.transactions
-          : []
+          : null
         const notificationData = notifications.status === 'fulfilled'
           ? notifications.value.data || {}
-          : {}
+          : null
         const conversationData = conversations.status === 'fulfilled'
           && Array.isArray(conversations.value.data?.conversations)
           ? conversations.value.data.conversations
-          : []
+          : null
         setOverview({
           account: accountData,
           verification: verificationData,
@@ -109,16 +115,7 @@ export default function DashboardPage() {
         <section className="marketplace-empty marketplace-error-state">
           <h1>Dashboard unavailable</h1>
           <p role="alert">{error}</p>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setError('')
-              setLoading(true)
-              setReloadKey((key) => key + 1)
-            }}
-          >
-            Try again
-          </Button>
+          <Button variant="secondary" onClick={retryOverview}>Try again</Button>
           <Link className="text-link" to="/account">Account and verification</Link>
         </section>
       </main>
@@ -130,9 +127,9 @@ export default function DashboardPage() {
   const verificationVariant = status === 'approved' ? 'success'
     : status === 'rejected' ? 'danger'
       : status === 'pending' ? 'warning' : 'neutral'
-  const activeListings = listings.filter((listing) => listing?.listing_status === 'available').length
-  const recentTransactions = transactions.slice(0, 4)
-  const recentConversations = conversations.slice(0, 3)
+  const activeListings = listings?.filter((listing) => listing?.listing_status === 'available').length ?? null
+  const recentTransactions = transactions?.slice(0, 4) ?? []
+  const recentConversations = conversations?.slice(0, 3) ?? []
   const canCreateListing = account.account_status === 'active'
     && account.email_verified
     && verification.is_verified
@@ -171,12 +168,14 @@ export default function DashboardPage() {
         </Card>
         <Card className="dashboard-status-card">
           <span className="dashboard-status-label">Available listings</span>
-          <strong>{activeListings}</strong>
+          <strong>{activeListings ?? '—'}</strong>
+          {activeListings === null && <small>Temporarily unavailable</small>}
           <Link to="/my-listings">Manage listings</Link>
         </Card>
         <Card className="dashboard-status-card">
           <span className="dashboard-status-label">Unread notifications</span>
-          <strong>{notifications.unread_count || 0}</strong>
+          <strong>{notifications?.unread_count ?? '—'}</strong>
+          {!notifications && <small>Temporarily unavailable</small>}
           <Link to="/notifications">Open notifications</Link>
         </Card>
       </section>
@@ -189,6 +188,14 @@ export default function DashboardPage() {
           </div>
           {account.admin_role && <Link className="secondary-link" to="/admin">Admin dashboard</Link>}
         </section>
+      ) : status === 'unavailable' ? (
+        <section className="dashboard-verification-callout" aria-labelledby="dashboard-verification-unavailable-title">
+          <div>
+            <h2 id="dashboard-verification-unavailable-title">Verification status is unavailable</h2>
+            <p>Refresh this overview or check your account page for the latest verification status.</p>
+          </div>
+          <Link className="secondary-link" to="/account">Open account</Link>
+        </section>
       ) : !canCreateListing && (
         <section className="dashboard-verification-callout" aria-labelledby="dashboard-verification-title">
           <div>
@@ -199,7 +206,12 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {error && <p className="form-error" role="alert">{error}</p>}
+      {error && (
+        <div className="dashboard-overview-warning">
+          <p className="form-error" role="alert">{error}</p>
+          <Button variant="secondary" onClick={retryOverview}>Refresh overview</Button>
+        </div>
+      )}
 
       <div className="dashboard-content-grid">
         <section className="dashboard-panel" aria-labelledby="dashboard-transactions-title">
@@ -207,7 +219,9 @@ export default function DashboardPage() {
             <div><h2 id="dashboard-transactions-title">Recent transactions</h2><p>Your latest purchase and sale activity.</p></div>
             <Link to="/transactions">View all</Link>
           </div>
-          {recentTransactions.length ? (
+          {transactions === null ? (
+            <div className="dashboard-empty"><p>Transaction details are temporarily unavailable.</p></div>
+          ) : recentTransactions.length ? (
             <ul className="dashboard-activity-list">
               {recentTransactions.map((transaction) => (
                 <li key={transaction.id}>
@@ -233,7 +247,9 @@ export default function DashboardPage() {
             <div><h2 id="dashboard-messages-title">Recent conversations</h2><p>Private chats with buyers and sellers.</p></div>
             <Link to="/messages">View all</Link>
           </div>
-          {recentConversations.length ? (
+          {conversations === null ? (
+            <div className="dashboard-empty"><p>Conversation details are temporarily unavailable.</p></div>
+          ) : recentConversations.length ? (
             <ul className="dashboard-activity-list">
               {recentConversations.map((conversation) => (
                 <li key={conversation.id}>

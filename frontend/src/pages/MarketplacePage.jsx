@@ -382,6 +382,7 @@ export function MarketplacePage() {
 export function ListingDetailPage() {
   const { listingId } = useParams()
   const navigate = useNavigate()
+  const isPageActive = useRef(false)
   const [listing, setListing] = useState(null)
   const [viewerId, setViewerId] = useState(null)
   const [viewerChecked, setViewerChecked] = useState(false)
@@ -390,9 +391,18 @@ export function ListingDetailPage() {
   const [messageText, setMessageText] = useState('')
   const [messageError, setMessageError] = useState('')
   const [sendingMessage, setSendingMessage] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportReason, setReportReason] = useState('')
+  const [reportDescription, setReportDescription] = useState('')
+  const [reportError, setReportError] = useState('')
+  const [reportSubmitted, setReportSubmitted] = useState(false)
+  const [sendingReport, setSendingReport] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let active = true
+    isPageActive.current = true
+
     api.get(`/api/listings/${listingId}`)
       .then(({ data }) => {
         if (active) setListing(data.listing)
@@ -403,8 +413,11 @@ export function ListingDetailPage() {
       .finally(() => {
         if (active) setLoading(false)
       })
-    return () => { active = false }
-  }, [listingId])
+    return () => {
+      active = false
+      isPageActive.current = false
+    }
+  }, [listingId, reloadKey])
 
   useEffect(() => {
     let active = true
@@ -449,11 +462,60 @@ export function ListingDetailPage() {
     }
   }
 
+  async function submitListingReport(event) {
+    event.preventDefault()
+    const submittedListingId = listing.id
+    setReportError('')
+    setSendingReport(true)
+    try {
+      await csrfCookie()
+      await api.post('/api/auth/reports', {
+        listing_id: submittedListingId,
+        reason: reportReason,
+        description: reportDescription.trim(),
+      })
+      if (isPageActive.current) setReportSubmitted(true)
+    } catch (requestError) {
+      if (requestError.response?.status === 401 && isPageActive.current) {
+        navigate('/login', { state: { returnTo: `/listings/${listingId}` } })
+      } else if (isPageActive.current) {
+        setReportError(getErrorMessage(requestError))
+      }
+    } finally {
+      if (isPageActive.current) setSendingReport(false)
+    }
+  }
+
+  function closeReport() {
+    if (sendingReport) return
+    setReportOpen(false)
+    setReportError('')
+    setReportSubmitted(false)
+    setReportReason('')
+    setReportDescription('')
+  }
+
+  function retryListing() {
+    setError('')
+    setListing(null)
+    setLoading(true)
+    setReloadKey((key) => key + 1)
+  }
+
   if (loading) {
     return <main className="marketplace-shell"><p role="status">Loading listing…</p></main>
   }
   if (error || !listing) {
-    return <main className="marketplace-shell"><p className="form-error" role="alert">{error || 'This listing is not available.'}</p><Link className="text-link" to="/marketplace">Back to marketplace</Link></main>
+    return (
+      <main className="marketplace-shell">
+        <section className="marketplace-empty marketplace-error-state">
+          <h1>Listing unavailable</h1>
+          <p role="alert">{error || 'This listing is not available.'}</p>
+          <Button variant="secondary" onClick={retryListing}>Try again</Button>
+          <Link className="secondary-link" to="/marketplace">Back to marketplace</Link>
+        </section>
+      </main>
+    )
   }
 
   return (
@@ -480,24 +542,70 @@ export function ListingDetailPage() {
           </div>
           {messageError && <p className="form-error" role="alert">{messageError}</p>}
           {viewerChecked && Number(listing.seller.id) !== Number(viewerId) && (
-            <form className="listing-message-form" onSubmit={startConversation}>
-              <p>Contact the seller privately to ask about this listing.</p>
-              <FormField label="Your message">
-                <TextArea
-                  name="message_text"
-                  value={messageText}
-                  onChange={(event) => setMessageText(event.target.value)}
-                  placeholder="Hi, is this item still available?"
-                  maxLength="2000"
-                  rows="3"
-                  required
-                />
-              </FormField>
-              {messageError && <p className="form-error" role="alert">{messageError}</p>}
-              <Button type="submit" disabled={sendingMessage || !messageText.trim()}>
-                {sendingMessage ? 'Opening conversation…' : 'Message seller'}
-              </Button>
-            </form>
+            <>
+              <form className="listing-message-form" onSubmit={startConversation}>
+                <p>Contact the seller privately to ask about this listing.</p>
+                <FormField label="Your message">
+                  <TextArea
+                    name="message_text"
+                    value={messageText}
+                    onChange={(event) => setMessageText(event.target.value)}
+                    placeholder="Hi, is this item still available?"
+                    maxLength="2000"
+                    rows="3"
+                    required
+                  />
+                </FormField>
+                <Button type="submit" disabled={sendingMessage || !messageText.trim()}>
+                  {sendingMessage ? 'Opening conversation…' : 'Message seller'}
+                </Button>
+                <Button variant="ghost" onClick={() => setReportOpen(true)}>Report listing</Button>
+              </form>
+              <Modal
+                open={reportOpen}
+                onClose={() => {
+                  if (!sendingReport) closeReport()
+                }}
+                title={reportSubmitted ? 'Report submitted' : 'Report this listing'}
+                actions={!reportSubmitted && (
+                  <>
+                    <Button variant="secondary" onClick={closeReport} disabled={sendingReport}>Cancel</Button>
+                    <Button type="submit" form="listing-report-form" disabled={sendingReport || !reportReason || !reportDescription.trim()}>
+                      {sendingReport ? 'Submitting…' : 'Submit report'}
+                    </Button>
+                  </>
+                )}
+              >
+                {reportSubmitted ? (
+                  <p role="status">Thank you. Your report has been sent to the admin team for review.</p>
+                ) : (
+                  <form id="listing-report-form" onSubmit={submitListingReport}>
+                    <p>Use this form to flag a listing that may violate campus marketplace rules. Admins will review your report.</p>
+                    <FormField label="Reason">
+                      <SelectInput value={reportReason} onChange={(event) => setReportReason(event.target.value)} required>
+                        <option value="">Choose a reason</option>
+                        <option value="Spam or misleading listing">Spam or misleading listing</option>
+                        <option value="Prohibited item">Prohibited item</option>
+                        <option value="Inappropriate content">Inappropriate content</option>
+                        <option value="Safety concern">Safety concern</option>
+                        <option value="Other">Other</option>
+                      </SelectInput>
+                    </FormField>
+                    <FormField label="Details" hint="Do not include private contact or account information.">
+                      <TextArea
+                        value={reportDescription}
+                        onChange={(event) => setReportDescription(event.target.value)}
+                        maxLength="5000"
+                        rows="5"
+                        required
+                      />
+                    </FormField>
+                    {reportError && <p className="form-error" role="alert">{reportError}</p>}
+                  </form>
+                )}
+                {reportSubmitted && <Button onClick={closeReport}>Done</Button>}
+              </Modal>
+            </>
           )}
           {viewerChecked && Number(listing.seller.id) === Number(viewerId) && (
             <p className="status-detail">This is your listing.</p>
@@ -677,8 +785,10 @@ export function ListingFormPage() {
   const [removeImageIds, setRemoveImageIds] = useState([])
   const [isVerified, setIsVerified] = useState(false)
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [retryKey, setRetryKey] = useState(0)
   const [selectedPhotos, setSelectedPhotos] = useState([])
   const imageInputRef = useRef(null)
 
@@ -719,14 +829,14 @@ export function ListingFormPage() {
       } catch (requestError) {
         if (!active) return
         if (requestError.response?.status === 401) navigate('/login', { replace: true })
-        else setError(getErrorMessage(requestError))
+        else setLoadError(getErrorMessage(requestError))
       } finally {
         if (active) setLoading(false)
       }
     }
     loadForm()
     return () => { active = false }
-  }, [isEditing, listingId, navigate])
+  }, [isEditing, listingId, navigate, retryKey])
 
   function update(event) {
     setForm({ ...form, [event.target.name]: event.target.value })
@@ -800,6 +910,30 @@ export function ListingFormPage() {
 
   if (loading) {
     return <main className="marketplace-shell"><p role="status">Loading listing form…</p></main>
+  }
+
+  if (loadError) {
+    return (
+      <main className="marketplace-shell">
+        <section className="marketplace-empty marketplace-error-state">
+          <h1>Listing form unavailable</h1>
+          <p role="alert">{loadError}</p>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setLoadError('')
+              setLoading(true)
+              setRetryKey((key) => key + 1)
+            }}
+          >
+            Try again
+          </Button>
+          <Link className="secondary-link" to={isEditing ? '/my-listings' : '/marketplace'}>
+            Back to {isEditing ? 'my listings' : 'marketplace'}
+          </Link>
+        </section>
+      </main>
+    )
   }
 
   return (

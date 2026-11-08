@@ -105,7 +105,7 @@ export function MessagesPage() {
       </div>
       {loading ? (
         <p className="marketplace-loading" role="status">Loading your conversations…</p>
-      ) : error ? (
+      ) : error && !conversations.length ? (
         <section className="marketplace-empty marketplace-error-state">
           <h2>Messages unavailable</h2>
           <p role="alert">{error}</p>

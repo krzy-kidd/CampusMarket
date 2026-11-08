@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\ListingController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TransactionController;
 use App\Http\Controllers\Api\VerificationController;
 use Illuminate\Support\Facades\Route;
@@ -34,6 +35,7 @@ Route::prefix('auth')->group(function () {
         Route::get('/verification/status', [VerificationController::class, 'status']);
         Route::get('/verification/history', [VerificationController::class, 'history']);
         Route::get('/listings', [ListingController::class, 'mine']);
+        Route::post('/reports', [ReportController::class, 'store'])->middleware('throttle:5,1');
         Route::get('/listings/{listing}', [ListingController::class, 'mineShow'])->whereNumber('listing');
         Route::post('/listings', [ListingController::class, 'store'])->middleware('throttle:10,1');
         Route::patch('/listings/{listing}', [ListingController::class, 'update'])->whereNumber('listing');

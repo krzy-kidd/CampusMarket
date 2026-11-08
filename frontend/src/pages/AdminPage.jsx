@@ -538,7 +538,7 @@ function Reports({ records, busy, onUpdate }) {
       <div className="admin-record-list">
         {records.map((report) => (
           <article className="admin-record" key={report.id}>
-            <h3>{report.reason} <span className="status-pill">{report.report_status}</span></h3>
+            <h3>{report.reason} <span className="status-pill">{report.report_status.replaceAll('_', ' ')}</span></h3>
             <p>Reported by {report.reporter?.first_name} {report.reporter?.last_name} · {report.created_at}</p>
             <p>{report.description}</p>
             {report.listing && <p>Listing: {report.listing.title}</p>}
