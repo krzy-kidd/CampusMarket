@@ -1,7 +1,10 @@
 # CampusTrade frontend
 
 The frontend is a React application built with Vite, React Router, and Axios.
-It uses the Laravel API configured by `VITE_API_BASE_URL` in `.env.local`.
+During local development, Vite proxies `/api` and `/sanctum` to Laravel so the
+Sanctum session cookies remain first-party in the browser. Configure the target
+with `VITE_API_PROXY_TARGET` in `.env.local` when Laravel is not running at
+`http://127.0.0.1:8000`. Production builds use `VITE_API_BASE_URL`.
 
 ## Development
 

@@ -28,8 +28,9 @@ frontend and a Laravel REST API.
    & $php artisan key:generate
    ```
    If PHP or Composer is installed elsewhere, update their paths accordingly.
-3. From `frontend`, run `npm install` and copy `.env.example` to `.env.local` if
-   you need to change the API URL.
+3. From `frontend`, run `npm install`. For local development, copy
+   `.env.example` to `.env.local` and change `VITE_API_PROXY_TARGET` only if
+   Laravel is not running at `http://127.0.0.1:8000`.
 4. In a backend terminal where `$php` points to PHP, start the API with
    `& $php artisan serve --host=127.0.0.1 --port=8000`.
 5. In another terminal, start the frontend with
