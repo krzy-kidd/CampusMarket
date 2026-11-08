@@ -1,0 +1,1304 @@
+# CAMPUS TRADE — MASTER DEVELOPMENT PROMPT
+
+## 1. PROJECT OVERVIEW
+
+Develop a secure, reliable, student-exclusive online marketplace named **campusTrade** for Western Mindanao State University (WMSU).
+
+The platform allows verified WMSU students to buy and sell items within the university community.
+
+The system must prioritize:
+- Student verification and account security.
+- Simple buying and selling.
+- Reliable transaction management.
+- Secure private messaging.
+- Fair cancellation and dispute resolution.
+- Protection of student information.
+- A responsive, user-friendly interface.
+- Maintainable and scalable application architecture.
+
+**IMPORTANT: This platform is strictly for BUYING AND SELLING.**
+
+Do not implement:
+- Item trading or exchanging.
+- Trade offers.
+- Counteroffers.
+- Price negotiation features.
+- Offer management.
+- Any trade-related database tables, API endpoints, frontend components, or business logic.
+
+All listings must have a fixed selling price.
+
+---
+
+## 2. REQUIRED TECHNOLOGIES
+
+### Frontend
+- React.js
+- JavaScript ES6+
+- HTML5
+- CSS3
+- React Router
+- Axios
+- npm for package management and frontend tooling.
+
+### Backend
+- PHP
+- Laravel
+- Laravel RESTful API
+- Eloquent ORM
+- Laravel Middleware
+- Laravel Policies and Gates
+- Laravel Sanctum for authentication.
+
+### Database
+- MySQL
+- Laravel migrations and seeders.
+
+### File Storage
+- Laravel private storage for sensitive documents such as Certificates of Registration (COR).
+- Cloudinary or an equivalent image-hosting service for marketplace product images.
+
+### Development restrictions
+- Use JavaScript, not TypeScript.
+- Do not use Node.js as the application backend.
+- Laravel and PHP must handle backend operations.
+- Never expose database credentials, API secrets, Cloudinary secrets, or other sensitive credentials in React.
+- Keep frontend and backend responsibilities separate.
+
+---
+
+# 3. USER ROLES AND ACCESS CONTROL
+
+The system must support three primary account types.
+
+### A. Regular Student
+
+Students can:
+- Register and log in.
+- Verify their WMSU email.
+- Submit their COR.
+- Browse available listings.
+- Search and filter products.
+- Publish listings after verification.
+- Purchase available products.
+- Communicate privately with sellers and buyers.
+- Arrange campus meetups.
+- Confirm completed transactions.
+- Cancel transactions according to the cancellation rules.
+- Submit reports.
+- Review other users after completed transactions.
+- Manage their profiles and listings.
+
+Unverified students must not be allowed to perform restricted marketplace activities.
+
+### B. Verification Admin
+
+There may be multiple Verification Admins.
+
+They can:
+- View pending COR submissions.
+- Privately preview submitted COR documents.
+- Approve or reject student verification.
+- Provide rejection reasons.
+- Review resubmissions.
+- View verification history.
+- Manage reported verification issues.
+
+They cannot:
+- Create or promote other administrators.
+- Change their own role.
+- Modify Super Admin permissions.
+- Configure academic years.
+- Access Super Admin-only functions.
+
+### C. Super Admin
+
+Only one active Super Admin is permitted.
+
+The Super Admin can:
+- Manage Verification Admins.
+- Create, deactivate, and manage administrative accounts.
+- Manage student accounts.
+- Manage categories and subcategories.
+- Configure academic years.
+- Manage listings and reports.
+- Review disputes.
+- Manage platform settings.
+- Access dashboards and audit logs.
+- Apply account restrictions when justified.
+
+All role permissions must be enforced on the Laravel backend, not merely hidden in the React interface.
+
+---
+
+# 4. STUDENT REGISTRATION AND ANNUAL COR VERIFICATION
+
+Student verification must happen once every academic year, not every semester.
+
+### Verification process
+
+1. Student creates an account.
+2. Student verifies their WMSU email address.
+3. Student submits their current academic year's Certificate of Registration (COR).
+4. The submission receives Pending Review status.
+5. A Verification Admin reviews the document.
+6. The admin approves or rejects the submission.
+7. If rejected, the student receives the rejection reason and may submit a corrected document.
+8. Once approved, the student receives a Verified status and badge.
+9. When a new academic year begins, students must submit a new COR.
+10. Restricted marketplace actions remain unavailable until the new verification is approved.
+
+### Important verification rules
+
+- Verification is tied to the currently active academic year.
+- Previous verification records must be preserved.
+- A student must not receive permanent verification from an old COR.
+- Only one approved verification record per student per academic year is allowed.
+- Only the Super Admin can configure the active academic year.
+- If no academic year is configured, the system must not automatically grant verified access.
+- Email verification and academic verification must be separate account conditions.
+
+### COR document security
+
+- Store COR files in private Laravel storage.
+- Do not expose public COR URLs.
+- Only the document owner and authorized administrators may access the file.
+- Use authenticated document preview and download endpoints.
+- Validate file extension, actual MIME type, file content, and size.
+- Generate randomized filenames.
+- Reject executable or suspicious files.
+- Apply malware scanning where available.
+- Do not expose internal storage paths in API responses or logs.
+- Establish a document retention and deletion policy.
+
+---
+
+# 5. MARKETPLACE CATEGORIES
+
+Implement the following categories and subcategories.
+
+### Textbooks and Educational Materials
+- Textbooks
+- Reviewers
+- Notebooks
+- Reference Materials
+
+### Electronics and Gadgets
+- Laptops
+- Smartphones
+- Tablets
+- Keyboards
+- Computer Accessories
+- Headphones and Earphones
+- Other Electronic Devices
+
+### Clothing and Accessories
+- T-shirts
+- Pants
+- Jackets
+- Shoes
+- Bags
+- Accessories
+
+### Dormitory Essentials
+- Electric Fans
+- Lamps
+- Storage Organizers
+- Small Appliances
+- Other Dormitory Essentials
+
+### School Supplies
+- Pens and Pencils
+- Calculators
+- Art Materials
+- Other School Supplies
+
+Categories must support parent-child relationships so administrators can manage additional categories and subcategories in the future.
+
+---
+
+# 6. PRODUCT LISTING SYSTEM
+
+Only verified students may publish listings.
+
+### Required listing information
+
+- Product title.
+- Product description.
+- Category and subcategory.
+- Fixed selling price.
+- Condition rating.
+- Actual product photos.
+- Seller information.
+- Listing creation date.
+
+### Product condition scale
+
+1. Very Good
+2. Good
+3. Fair
+4. Poor
+
+Display the condition clearly so buyers understand the product's state before purchasing.
+
+### Listing rules
+
+- Every listing must have a fixed price.
+- Sellers cannot create trade-only listings.
+- Listings must contain valid information and actual product images.
+- Sellers may edit their listings while doing so does not conflict with an active transaction.
+- Price changes must not alter an already-created transaction's agreed-price snapshot.
+- Listings must not be deleted in a way that destroys transaction history.
+- Administrators may remove prohibited or reported listings.
+
+### Listing statuses
+
+Use these listing statuses:
+
+1. Available — The product is available for purchase.
+2. Pending Agreement — A buyer has initiated a purchase and the parties are coordinating.
+3. Locked / Meetup Arranged — Both parties have agreed to proceed and confirmed a meetup arrangement. Other buyers cannot purchase the item.
+4. Sold — The transaction has been successfully completed.
+5. Archived — The seller or an authorized administrator has removed the listing from active marketplace display.
+
+Do not use the old Reserved status.
+
+---
+
+# 7. BUYING AND SELLING TRANSACTION PROCESS
+
+The transaction system must follow a clear, fair, and reliable process.
+
+## Step 1: Buyer discovers a product
+
+The buyer browses available listings and checks:
+- Product description.
+- Price.
+- Condition.
+- Photos.
+- Seller profile.
+- Seller rating.
+- Verified student badge.
+
+## Step 2: Buyer clicks Buy Now
+
+The buyer selects Buy Now and confirms their intention to purchase.
+
+The backend checks:
+- Buyer account is active and academically verified.
+- Listing exists.
+- Listing is Available.
+- Buyer is not the seller.
+- No conflicting active transaction exists.
+- The listing has not already been claimed by another valid purchase process.
+
+The system creates a transaction with a snapshot of the current listing price.
+
+## Step 3: Pending Agreement
+
+After the purchase request is created, the transaction receives Pending Agreement status.
+
+The listing changes to Pending Agreement.
+
+At this stage:
+- The buyer and seller communicate through a private conversation.
+- They discuss the proposed meetup.
+- They agree on a date, time, and campus location.
+- The listing remains available to other eligible buyers until both parties confirm the meetup arrangement.
+
+If another buyer successfully initiates a valid purchase before the first transaction reaches the locked stage, the backend must apply the First Come, First Served rule and prevent conflicting transactions.
+
+## Step 4: Both parties confirm the meetup
+
+The buyer and seller must independently confirm the meetup arrangement.
+
+The meetup arrangement should record:
+- Agreed date.
+- Agreed time.
+- Agreed campus location.
+- Buyer confirmation.
+- Seller confirmation.
+
+Only after both parties confirm must the system:
+- Change the transaction status to Meetup Arranged.
+- Change the listing status to Locked / Meetup Arranged.
+- Prevent other buyers from purchasing the item.
+- Notify both parties.
+
+The backend must perform this transition atomically.
+
+A buyer clicking Buy Now alone must never lock the listing.
+
+## Step 5: Face-to-face meetup
+
+The buyer and seller meet at their agreed campus location.
+
+The buyer may inspect the product before completing the purchase.
+
+Payment and product handover happen directly between the buyer and seller.
+
+The platform does not process or hold payments.
+
+The platform does not provide shipping or delivery services.
+
+## Step 6: Successful transaction
+
+After the buyer receives the item and the seller receives payment:
+
+- The buyer confirms completion.
+- The seller confirms completion.
+- Both confirmations are recorded independently.
+- The system changes the transaction status to Completed.
+- The listing changes to Sold.
+- Both parties receive notifications.
+- Both parties become eligible to review each other.
+
+Neither participant should be able to confirm completion on behalf of the other.
+
+A transaction must never become Completed based on only one confirmation.
+
+---
+
+# 8. FAILED MEETUP, CANCELLATION, AND LISTING UNLOCKING RULES
+
+This section is especially important. Implement the following process exactly.
+
+The system must protect both buyers and sellers when an agreed meetup does not happen.
+
+## A. Both parties agree that the meetup failed
+
+If the buyer and seller both agree that the meetup did not happen or that they cannot proceed:
+
+1. Either party selects Cancel Transaction / Report Failed Meetup.
+2. The other party receives a notification.
+3. The other party confirms the cancellation.
+4. The system automatically changes the transaction status to Cancelled.
+5. The system changes the listing status back to Available.
+6. The item becomes purchasable by other eligible students again.
+7. The system records the cancellation reason and transaction event.
+8. Both parties receive notifications.
+
+## B. Seller requests to make the listing available again
+
+If the meetup fails and the buyer does not respond or confirm cancellation:
+
+1. The seller may submit a Request to Unlock Listing.
+2. The system notifies the buyer.
+3. The buyer receives a reasonable response period to confirm cancellation or report a legitimate issue.
+4. The response period must be configurable by the Super Admin.
+5. Use a default response period of 24 hours unless the Super Admin changes it.
+6. If the buyer does not respond within the configured period, the system may automatically cancel the transaction and return the listing to Available.
+7. Record the seller's request, buyer notification, response deadline, and final action in the transaction history.
+
+The system must not automatically unlock listings simply because the scheduled meetup time has passed.
+
+The 24-hour response period applies only after a seller has formally requested to unlock a listing. It is not a general reservation expiration timer.
+
+## C. Buyer disputes the cancellation
+
+If the buyer reports a legitimate reason for not attending or disputes the seller's request:
+
+- Keep the transaction locked.
+- Change the transaction status to Disputed.
+- Notify administrators.
+- Allow both parties to submit explanations and supporting evidence.
+- Require Admin Mediation.
+- Do not automatically mark the item Sold or Available while the dispute is unresolved.
+
+## D. Admin mediation
+
+An authorized administrator may:
+- Review transaction history.
+- Review meetup details.
+- Review messages and submitted evidence where authorized.
+- Request additional information.
+- Resolve the dispute.
+- Cancel the transaction and return the listing to Available.
+- Apply appropriate account restrictions if misconduct is established.
+
+All administrative decisions must be recorded in the audit log.
+
+## E. Additional cancellation rules
+
+- Cancellation must require a reason.
+- Only authorized participants or administrators may initiate the relevant cancellation actions.
+- A completed transaction cannot be cancelled through the normal cancellation process.
+- Disputed transactions cannot be automatically unlocked.
+- Repeated cancellation abuse may be flagged for administrative review.
+- Never erase transaction history when a transaction is cancelled.
+- Do not automatically unlock a listing without a valid cancellation or authorized resolution.
+
+---
+
+# 9. TRANSACTION STATUS AND LISTING STATUS MUST BE SEPARATE
+
+Do not use a single status field for both listings and transactions.
+
+### Listing status
+
+- available
+- pending_agreement
+- locked
+- sold
+- archived
+
+### Transaction status
+
+- pending_agreement
+- meetup_arranged
+- completed
+- cancelled
+- disputed
+
+The backend must enforce valid state transitions.
+
+Example:
+
+Listing:
+Available → Pending Agreement → Locked → Sold
+
+Alternative:
+Available → Pending Agreement → Locked → Available
+
+Transaction:
+Pending Agreement → Meetup Arranged → Completed
+
+Alternative:
+Pending Agreement → Cancelled
+
+Alternative:
+Meetup Arranged → Cancelled
+
+Alternative:
+Meetup Arranged → Disputed → Cancelled or other authorized resolution
+
+A disputed transaction must remain locked until it is resolved.
+
+The system must not allow invalid transitions, such as:
+- Cancelled → Completed.
+- Completed → Cancelled.
+- Sold → Available without an authorized correction process.
+- Disputed → Available without resolution.
+- Locked → Sold without both completion confirmations.
+
+---
+
+# 10. FIRST COME, FIRST SERVED AND CONCURRENCY PROTECTION
+
+The platform must support First Come, First Served purchasing.
+
+The first valid purchase process to successfully complete the backend's required checks and database operation receives priority.
+
+Requirements:
+
+- Use database transactions.
+- Use row-level locking where supported.
+- Lock the listing record during critical purchase and state transitions.
+- Prevent multiple active transactions for the same listing.
+- Use database constraints where appropriate.
+- Use idempotency protection for purchase requests.
+- Prevent duplicate requests caused by repeated clicks or network retries.
+- Return a clear error if another buyer has already claimed the listing.
+- Never trust frontend availability checks alone.
+
+Only one active transaction may exist for a listing at a time.
+
+---
+
+# 11. PRIVATE MESSAGING SYSTEM
+
+Implement a private messaging system for buyers and sellers.
+
+Features:
+- Private buyer-seller conversations.
+- Message history.
+- Sent timestamps.
+- Read timestamps.
+- Unread message indicators.
+- Conversation list.
+- Notifications for new messages.
+- Transaction-related conversation linking.
+
+Rules:
+- Only conversation participants may access the conversation.
+- Users cannot message themselves.
+- Users cannot access another user's private conversations.
+- Messages must be validated and safely displayed.
+- Apply message rate limits and abuse reporting.
+- Protect against stored and reflected XSS.
+- Do not implement price offers, counteroffers, or negotiation workflows.
+
+---
+
+# 12. RATINGS AND REVIEWS
+
+After a transaction reaches Completed:
+
+- Buyer may review seller.
+- Seller may review buyer.
+- Rating scale is 1–5.
+- Written comments are optional.
+- Display the user's average rating.
+- Display the number of completed reviews.
+
+Rules:
+- Only actual transaction participants may submit reviews.
+- Only completed transactions qualify.
+- One review per participant per transaction.
+- Users cannot review themselves.
+- Duplicate reviews must be prevented through database constraints.
+- Administrators may moderate abusive or inappropriate reviews.
+- Preserve the review moderation history.
+
+---
+
+# 13. REPORTING AND DISPUTE MANAGEMENT
+
+Students must be able to report:
+- Suspicious users.
+- Misleading listings.
+- Inappropriate product images.
+- Fraudulent behavior.
+- Failed meetups.
+- Transaction issues.
+- Harassment or abusive messages.
+
+Reports must contain:
+- Reporter.
+- Reported user, if applicable.
+- Related listing, if applicable.
+- Related transaction, if applicable.
+- Reason.
+- Description.
+- Evidence, where supported.
+- Report status.
+- Resolution notes.
+- Timestamps.
+
+Administrators must be able to review and resolve reports.
+
+Never allow ordinary students to access another user's private reports.
+
+---
+
+# 14. DATABASE DESIGN
+
+Create normalized MySQL tables using Laravel migrations.
+
+Recommended entities:
+
+### 1. Users
+- user_id
+- student_id_number
+- first_name
+- last_name
+- email
+- password
+- college
+- course
+- year_level
+- section
+- email_verified_at
+- account_status
+- timestamps
+
+### 2. Admins
+- admin_id
+- user_id
+- role
+- account_status
+- created_at
+
+### 3. AcademicYears
+- academic_year_id
+- academic_year
+- start_date
+- end_date
+- is_current
+- created_at
+
+### 4. Verifications
+- verification_id
+- user_id
+- academic_year_id
+- cor_file_path
+- submission_status
+- submitted_at
+- reviewed_at
+- reviewed_by
+- rejection_reason
+- admin_notes
+
+### 5. Categories
+- category_id
+- category_name
+- parent_category_id
+- description
+- created_at
+
+### 6. Listings
+- listing_id
+- seller_id
+- category_id
+- title
+- description
+- price
+- condition_rating
+- listing_status
+- timestamps
+
+### 7. ListingImages
+- image_id
+- listing_id
+- image_url
+- created_at
+
+### 8. Conversations
+- conversation_id
+- listing_id
+- buyer_id
+- seller_id
+- timestamps
+
+Use a unique constraint on listing_id, buyer_id, and seller_id where appropriate to prevent duplicate conversations for the same participants and listing.
+
+### 9. Messages
+- message_id
+- conversation_id
+- sender_id
+- message_text
+- sent_at
+- read_at
+
+### 10. Transactions
+- transaction_id
+- listing_id
+- buyer_id
+- seller_id
+- agreed_price
+- transaction_status
+- meetup_date
+- meetup_time
+- meetup_location
+- buyer_meetup_confirmed_at
+- seller_meetup_confirmed_at
+- buyer_completion_confirmed_at
+- seller_completion_confirmed_at
+- seller_unlock_requested_at
+- buyer_unlock_response_deadline
+- cancellation_reason
+- completed_at
+- created_at
+- updated_at
+
+The agreed_price field must be a snapshot of the listing price at the time the transaction is created.
+
+### 11. TransactionEvents
+- event_id
+- transaction_id
+- actor_id
+- event_type
+- event_description
+- created_at
+
+Use this table to preserve transaction history, including meetup confirmation, cancellation requests, unlock requests, disputes, and administrative resolutions.
+
+### 12. Reviews
+- review_id
+- transaction_id
+- reviewer_id
+- reviewed_user_id
+- rating
+- comment
+- created_at
+
+### 13. Reports
+- report_id
+- reporter_id
+- reported_user_id
+- listing_id
+- transaction_id
+- reason
+- description
+- report_status
+- resolution_notes
+- created_at
+
+### 14. Notifications
+- notification_id
+- user_id
+- notification_type
+- message
+- is_read
+- read_at
+- created_at
+
+### 15. AuditLogs
+- audit_log_id
+- admin_id
+- action
+- target_type
+- target_id
+- created_at
+
+### Database requirements
+
+- Use foreign keys.
+- Use appropriate indexes.
+- Use unique constraints.
+- Use appropriate nullability.
+- Use appropriate data types and decimal precision for prices.
+- Prevent duplicate active transactions for the same listing.
+- Enforce one current academic year.
+- Prevent overlapping academic years.
+- Prevent duplicate approved COR verification for the same student and academic year.
+- Preserve completed transaction and audit history.
+- Avoid cascading deletion of important transaction records.
+- Use database transactions for critical operations.
+
+Do not create an Offers table, Trade table, or trade-related columns.
+
+---
+
+# 15. USER INTERFACE AND EXPERIENCE
+
+Create a clean, modern, responsive marketplace interface.
+
+### Main pages
+
+1. Landing Page
+2. Registration
+3. Login
+4. Email Verification
+5. COR Submission
+6. Verification Status
+7. Marketplace Homepage
+8. Product Details
+9. Create Listing
+10. Edit Listing
+11. My Listings
+12. Purchase History
+13. Sales History
+14. Conversations
+15. Chat Interface
+16. Transaction Details
+17. Notifications
+18. User Profile
+19. Reviews
+20. Reports
+21. Student Dashboard
+22. Admin Dashboard
+23. COR Verification Management
+24. User Management
+25. Listing Management
+26. Dispute Management
+27. Category Management
+28. Academic Year Management
+29. Audit Logs
+30. Platform Settings
+
+### Interface requirements
+
+- Responsive desktop, tablet, and mobile layouts.
+- Clear navigation.
+- Consistent design system.
+- Proper loading states.
+- Empty states.
+- Error states.
+- Confirmation dialogs for important actions.
+- Accessible forms and buttons.
+- Clear status indicators.
+- Product image previews.
+- Search and filtering.
+- Pagination.
+- Avoid unnecessary interface complexity.
+
+Make the interface easy for university students to understand and use.
+
+---
+
+# 16. SEARCH AND DISCOVERY
+
+Implement:
+- Keyword search.
+- Category filtering.
+- Subcategory filtering.
+- Minimum and maximum price.
+- Condition filtering.
+- Newest listings.
+- Price ascending.
+- Price descending.
+- Pagination.
+
+Only display listings that are eligible for marketplace discovery.
+
+Do not display Locked / Meetup Arranged, Sold, or Archived listings as available products.
+
+---
+
+# 17. NOTIFICATION SYSTEM
+
+Provide notifications for:
+
+- Email verification.
+- COR submission.
+- COR approval or rejection.
+- New academic year verification requirements.
+- New messages.
+- Purchase requests.
+- Meetup confirmation requests.
+- Both parties confirming a meetup.
+- Meetup arrangement.
+- Cancellation requests.
+- Seller unlock requests.
+- Buyer responses.
+- Transaction completion.
+- Disputes.
+- Administrative dispute resolutions.
+- Reports and account restrictions.
+- New reviews.
+
+Notifications must be generated by trusted backend events.
+
+Prevent duplicate notifications where appropriate.
+
+---
+
+# 18. SECURITY REQUIREMENTS
+
+Security must be treated as a core development requirement.
+
+Use OWASP Application Security Verification Standard (ASVS) Level 2 as a target security verification framework.
+
+Do not claim the application is completely hack-proof.
+
+### Authentication
+- Secure password hashing.
+- Email verification.
+- Password reset tokens that expire and can only be used once.
+- Login rate limiting.
+- Protection against brute-force attacks and credential stuffing.
+- Secure session handling.
+- Session revocation.
+- Reauthentication for sensitive account changes.
+- Multi-factor authentication for administrators.
+- Secure cookie and CSRF configuration where applicable.
+
+### Authorization
+- Enforce role permissions on the backend.
+- Protect against IDOR.
+- Verify resource ownership and transaction participation.
+- Prevent privilege escalation.
+- Prevent students from accessing COR documents belonging to others.
+- Prevent unauthorized access to messages and transactions.
+- Protect admin endpoints.
+
+### Input and API security
+- Laravel Form Request validation.
+- Parameterized database queries.
+- Mass-assignment protection.
+- Output escaping.
+- XSS protection.
+- SQL injection protection.
+- CSRF protection where applicable.
+- CORS allowlist.
+- API rate limiting.
+- Request-size limits.
+- Pagination limits.
+- Safe error messages.
+- HTTPS enforcement.
+- Security headers, including appropriate Content Security Policy and frame restrictions.
+
+### File security
+- Private COR storage.
+- Secure image uploads.
+- Actual MIME and file-content validation.
+- File size and image dimension limits.
+- Randomized filenames.
+- Image re-encoding.
+- EXIF metadata removal where appropriate.
+- Malware scanning where available.
+- Secure Cloudinary configuration.
+- No exposed upload secrets.
+
+### Database security
+- Least-privilege database account.
+- Foreign keys and constraints.
+- Secure credentials.
+- No database access from React.
+- Safe database transactions.
+- Row-level locking for critical listing operations.
+- Encrypted backups.
+- Protected audit history.
+
+### Admin security
+- MFA.
+- Strong role separation.
+- Reauthentication for sensitive actions.
+- Audit administrative actions.
+- Log failed administrative access attempts.
+- Protect audit logs from unauthorized modification.
+- Do not allow administrators to modify their own privileges.
+
+### Privacy
+- Collect only necessary student information.
+- Protect COR documents.
+- Apply a retention policy.
+- Restrict access to private data.
+- Protect backups.
+- Prepare an incident response process.
+- Consider compliance with the Philippine Data Privacy Act of 2012.
+
+---
+
+# 19. SYSTEM STABILITY AND ERROR HANDLING
+
+The application must be designed to avoid crashes, inconsistent records, and data loss.
+
+### React
+- Use Error Boundaries.
+- Handle undefined and null API values.
+- Implement loading, error, and empty states.
+- Prevent duplicate submissions.
+- Handle expired authentication.
+- Use controlled retries.
+- Avoid automatically retrying non-idempotent purchase actions without idempotency protection.
+- Protect routes appropriately.
+
+### Laravel
+- Centralize exception handling.
+- Validate every request.
+- Use database transactions for critical operations.
+- Avoid N+1 queries through eager loading.
+- Apply query and request limits.
+- Handle database outages.
+- Handle storage failures.
+- Configure queue retry limits.
+- Log useful errors without exposing sensitive data.
+- Use appropriate timeouts.
+
+### Transaction reliability
+- Make purchase creation atomic.
+- Make meetup confirmation atomic.
+- Make listing unlocking atomic.
+- Make completion atomic.
+- Prevent duplicate transactions.
+- Prevent conflicting listing statuses.
+- Preserve transaction event history.
+- Handle simultaneous requests safely.
+
+---
+
+# 20. TESTING REQUIREMENTS
+
+Before considering the application complete, perform functional, integration, security, and reliability testing.
+
+### Authentication tests
+- Invalid login.
+- Unverified email.
+- Expired password reset.
+- Reused password reset token.
+- Expired session.
+- Login rate limiting.
+
+### Verification tests
+- Invalid COR file.
+- Oversized COR file.
+- Unauthorized COR access.
+- Duplicate academic-year verification.
+- Rejected COR resubmission.
+- New academic year restrictions.
+
+### Authorization tests
+- IDOR.
+- Privilege escalation.
+- Unauthorized admin access.
+- Unauthorized listing edits.
+- Unauthorized conversation access.
+- Unauthorized transaction access.
+
+### Marketplace tests
+- Invalid listing.
+- Invalid price.
+- Invalid condition rating.
+- Unauthorized listing creation.
+- Duplicate listing requests.
+- Search and filtering.
+- Pagination.
+
+### Transaction tests
+- Buyer clicks Buy Now.
+- Buyer and seller agree to a meetup.
+- Only one party confirms the meetup.
+- Both parties confirm the meetup.
+- Listing changes to Locked.
+- Another buyer attempts to purchase a locked listing.
+- Two buyers attempt to purchase simultaneously.
+- Both parties agree to cancel.
+- Seller requests listing unlock.
+- Buyer responds to unlock request.
+- Buyer does not respond within the configured period.
+- Buyer disputes the unlock request.
+- Admin resolves a dispute.
+- Listing returns to Available after authorized cancellation.
+- Listing becomes Sold after mutual completion confirmation.
+- One party attempts to confirm completion on behalf of the other.
+- Duplicate purchase request.
+- Duplicate completion confirmation.
+- Invalid transaction state transition.
+
+### Security tests
+- SQL injection.
+- XSS.
+- CSRF.
+- Brute force.
+- Malicious file uploads.
+- Unauthorized API requests.
+- Session abuse.
+- CORS misconfiguration.
+- Sensitive information exposure.
+
+### Reliability tests
+- Database unavailable.
+- Image storage unavailable.
+- Failed API request.
+- Network interruption.
+- Duplicate form submission.
+- Concurrent listing purchase.
+- Server restart.
+- Backup and restoration.
+
+---
+
+# 21. DEVELOPMENT PHASES
+
+Build the system in the following order.
+
+Do not attempt to develop the entire platform in one step.
+
+## PHASE 1 — FOUNDATION AND PROJECT ARCHITECTURE
+
+- Inspect existing project files.
+- Identify existing frontend and backend structures.
+- Set up React.
+- Set up Laravel.
+- Configure MySQL.
+- Configure environment variables.
+- Configure Sanctum.
+- Configure CORS.
+- Establish API structure.
+- Configure centralized error handling.
+- Create a basic health-check endpoint.
+- Establish frontend routing.
+- Test frontend-backend communication.
+
+Deliverables:
+- Working React application.
+- Working Laravel backend.
+- Successful MySQL connection.
+- Working API health check.
+- Organized project structure.
+
+## PHASE 2 — DATABASE DESIGN AND MIGRATIONS
+
+- Create the database schema.
+- Create Laravel migrations.
+- Define Eloquent models and relationships.
+- Add foreign keys and indexes.
+- Add unique constraints.
+- Add appropriate database transactions.
+- Implement transaction event history.
+- Validate listing and transaction state design.
+
+Deliverables:
+- Working MySQL schema.
+- Successful migrations.
+- Verified relationships.
+- Database integrity tests.
+
+## PHASE 3 — AUTHENTICATION AND STUDENT VERIFICATION
+
+- Registration.
+- Login and logout.
+- Email verification.
+- Password reset.
+- Sanctum authentication.
+- COR submission.
+- Private COR storage.
+- Verification review.
+- Approval and rejection.
+- Resubmission.
+- Annual academic-year enforcement.
+
+Deliverables:
+- Complete student authentication.
+- Working COR submission.
+- Working admin verification process.
+
+## PHASE 4 — ADMIN DASHBOARD
+
+- Super Admin dashboard.
+- Verification Admin dashboard.
+- Role-based permissions.
+- Admin account management.
+- Student management.
+- COR review.
+- Academic year configuration.
+- Category management.
+- Reports and dispute management.
+- Audit logs.
+
+Deliverables:
+- Functional admin interface.
+- Secure role separation.
+- Verified administrative permissions.
+
+## PHASE 5 — MARKETPLACE AND LISTINGS
+
+- Marketplace homepage.
+- Product listing creation.
+- Product editing.
+- Product deletion or archiving.
+- Image upload.
+- Categories and subcategories.
+- Fixed-price validation.
+- Condition ratings.
+- Listing statuses.
+
+Deliverables:
+- Working buy-and-sell marketplace.
+- Functional listing management.
+
+## PHASE 6 — SEARCH AND DISCOVERY
+
+- Keyword search.
+- Category filtering.
+- Subcategory filtering.
+- Price filtering.
+- Condition filtering.
+- Sorting.
+- Pagination.
+
+Deliverables:
+- Functional product discovery.
+
+## PHASE 7 — PRIVATE MESSAGING
+
+- Conversation creation.
+- Buyer-seller messaging.
+- Message history.
+- Read status.
+- Unread indicators.
+- Notifications.
+- Access control.
+
+Deliverables:
+- Secure private messaging system.
+
+## PHASE 8 — BUYING, MEETUPS, TRANSACTIONS, AND REVIEWS
+
+- Buy Now.
+- First Come, First Served.
+- Pending Agreement.
+- Mutual meetup confirmation.
+- Locked / Meetup Arranged status.
+- Meetup scheduling.
+- Cancellation.
+- Seller unlock requests.
+- Buyer response window.
+- Admin mediation.
+- Mutual completion confirmation.
+- Sold status.
+- Transaction event history.
+- Reviews and ratings.
+
+Deliverables:
+- Complete and tested transaction workflow.
+- Reliable listing-locking and unlocking process.
+- Dispute resolution.
+
+## PHASE 9 — NOTIFICATIONS, REPORTING, AND SECURITY HARDENING
+
+- Notification system.
+- User reporting.
+- Listing reporting.
+- Transaction reporting.
+- Security testing.
+- Rate limiting.
+- File security.
+- Audit logging.
+- Error handling.
+- Performance improvements.
+
+Deliverables:
+- Functional notifications.
+- Reporting and moderation.
+- Security and reliability improvements.
+
+## PHASE 10 — FINAL TESTING AND DEPLOYMENT
+
+- End-to-end testing.
+- Functional testing.
+- Security testing.
+- Concurrency testing.
+- Performance testing.
+- Backup and restoration.
+- Production environment configuration.
+- HTTPS.
+- Database protection.
+- Deployment documentation.
+- Final system documentation.
+
+Deliverables:
+- Production-ready application.
+- Deployment instructions.
+- Testing documentation.
+- Maintenance documentation.
+
+---
+
+# 22. DEVELOPMENT INSTRUCTIONS FOR THE AI CODING ASSISTANT
+
+Follow these instructions throughout development.
+
+1. Start by inspecting the existing project before creating, modifying, or deleting files.
+2. Identify the existing directory structure, dependencies, database configuration, and working features.
+3. Reuse existing working code whenever possible.
+4. Do not create duplicate files, components, routes, models, migrations, or functions.
+5. Do not overwrite existing working code without checking its purpose.
+6. Use clean, modular, maintainable code.
+7. Follow Laravel and React best practices.
+8. Keep frontend and backend responsibilities separated.
+9. Explain the purpose of important files and folders.
+10. Provide exact terminal commands when installation or configuration is needed.
+11. Explain where code should be placed.
+12. Validate each implementation before proceeding.
+13. Run migrations and tests carefully.
+14. Never delete existing database records or reset the database without explicit approval.
+15. Never expose secrets or credentials.
+16. Address security issues as part of implementation, not as an afterthought.
+17. Do not implement any Offers, Trades, or item-exchange features.
+18. Do not introduce automatic listing expiration or automatic unlocking merely because a meetup time has passed.
+19. Ensure that every important transaction action is validated by the Laravel backend.
+20. Document any assumptions or unresolved decisions instead of silently inventing behavior.
+
+### STRICT PHASE-BY-PHASE EXECUTION
+
+Begin with **PHASE 1 ONLY**.
+
+Do not start Phase 2 until Phase 1 has been implemented, tested, explained, and confirmed.
+
+For every phase:
+
+- Inspect first.
+- Plan the changes.
+- Implement the phase.
+- Explain the files created or modified.
+- Provide commands needed to run the application.
+- Test the implementation.
+- Report completed tasks and remaining issues.
+- Wait for confirmation before moving to the next phase.
+
+If an existing implementation conflicts with the requirements, identify the conflict and explain the necessary correction before changing it.
+
+**FINAL OBJECTIVE:** Build campusTrade as a secure, reliable, student-exclusive WMSU marketplace focused entirely on buying and selling, with annual student verification, fixed-price listings, private messaging, mutually confirmed meetups, reliable listing locking and unlocking, transaction accountability, and administrator-mediated disputes.

@@ -1,0 +1,31 @@
+# Environment configuration and secrets
+/backend/.env
+/backend/.env.*
+!/backend/.env.example
+/frontend/.env
+/frontend/.env.*
+!/frontend/.env.example
+
+# Dependencies and build output
+**/vendor/
+**/node_modules/
+/frontend/dist/
+/backend/public/build/
+
+# Runtime data and logs
+/backend/storage/app/private/**
+!/backend/storage/app/private/.gitignore
+/backend/storage/app/public/**
+!/backend/storage/app/public/.gitignore
+/backend/storage/framework/**
+!/backend/storage/framework/**/.gitignore
+/backend/storage/logs/**
+!/backend/storage/logs/.gitignore
+/backend/bootstrap/cache/*.php
+/backend/public/storage
+/backend/database/*.sqlite*
+/backend/*.log
+/frontend/*.log
+
+# Local tooling
+.phpunit.result.cache
