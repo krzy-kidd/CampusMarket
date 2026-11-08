@@ -738,6 +738,32 @@ export function ListingFormPage() {
       : [...current, imageId])
   }
 
+  function selectPhotos(files) {
+    const photos = Array.from(files || [])
+    const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+    const remainingImageCount = existingImages.length - removeImageIds.length
+    const validationMessage = photos.some((file) => !allowedTypes.has(file.type))
+      ? 'Choose JPG, PNG, or WebP photos only.'
+      : photos.some((file) => file.size > 5 * 1024 * 1024)
+        ? 'Each photo must be 5 MB or smaller.'
+        : remainingImageCount + photos.length > 5
+          ? 'A listing can have no more than 5 photos in total.'
+          : ''
+
+    if (validationMessage) {
+      if (imageInputRef.current) imageInputRef.current.value = ''
+      setSelectedPhotos([])
+      setError(validationMessage)
+      return
+    }
+
+    setSelectedPhotos(photos.map((file) => ({
+      file,
+      previewUrl: URL.createObjectURL(file),
+    })))
+    setError('')
+  }
+
   async function submit(event) {
     event.preventDefault()
     const remainingImageCount = existingImages.length - removeImageIds.length
@@ -849,13 +875,7 @@ export function ListingFormPage() {
               accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
               multiple
               required={!isEditing}
-              onChange={(event) => {
-                setSelectedPhotos(Array.from(event.target.files || []).map((file) => ({
-                  file,
-                  previewUrl: URL.createObjectURL(file),
-                })))
-                setError('')
-              }}
+              onChange={(event) => selectPhotos(event.target.files)}
             />
           </label>
           <p className="listing-form-hint">Upload clear photos of the actual item. JPG, PNG, or WebP; maximum 5 MB per photo and 5 photos total.</p>

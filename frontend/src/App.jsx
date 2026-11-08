@@ -1,5 +1,7 @@
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import SiteHeader from './components/SiteHeader.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
+import RequireAccount from './components/RequireAccount.jsx'
 import { Badge, Button, Card } from './components/ui.jsx'
 import {
   AccountPage,
@@ -19,6 +21,7 @@ import {
 import { MessageThreadPage, MessagesPage } from './pages/MessagesPage.jsx'
 import { TransactionDetailPage, TransactionsPage } from './pages/TransactionsPage.jsx'
 import NotificationsPage from './pages/NotificationsPage.jsx'
+import DashboardPage from './pages/DashboardPage.jsx'
 import './App.css'
 
 function HomePage() {
@@ -123,28 +126,35 @@ function App() {
         variant={isLanding ? 'landing' : isAdmin ? 'admin' : isAuth ? 'auth' : 'default'}
         pathname={pathname}
       />
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/marketplace" element={<MarketplacePage />} />
-        <Route path="/listings/new" element={<ListingFormPage />} />
-        <Route path="/listings/:listingId/edit" element={<ListingFormPage />} />
-        <Route path="/listings/:listingId" element={<ListingDetailPage />} />
-        <Route path="/my-listings" element={<MyListingsPage />} />
-        <Route path="/messages" element={<MessagesPage />} />
-        <Route path="/messages/:conversationId" element={<MessageThreadPage />} />
-        <Route path="/transactions" element={<TransactionsPage />} />
-        <Route path="/transactions/:transactionId" element={<TransactionDetailPage />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
-        <Route path="/health" element={<HealthPage />} />
-        <Route path="/login" element={<AuthPage mode="login" />} />
-        <Route path="/register" element={<AuthPage mode="register" />} />
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/verify-email" element={<VerifyEmailPage />} />
-        <Route path="/account" element={<AccountPage />} />
-        <Route path="/admin" element={<AdminPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <ErrorBoundary key={pathname}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/marketplace" element={<MarketplacePage />} />
+          <Route path="/listings/:listingId" element={<ListingDetailPage />} />
+          <Route path="/health" element={<HealthPage />} />
+          <Route path="/login" element={<AuthPage mode="login" />} />
+          <Route path="/register" element={<AuthPage mode="register" />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route element={<RequireAccount />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/listings/new" element={<ListingFormPage />} />
+            <Route path="/listings/:listingId/edit" element={<ListingFormPage />} />
+            <Route path="/my-listings" element={<MyListingsPage />} />
+            <Route path="/messages" element={<MessagesPage />} />
+            <Route path="/messages/:conversationId" element={<MessageThreadPage />} />
+            <Route path="/transactions" element={<TransactionsPage />} />
+            <Route path="/transactions/:transactionId" element={<TransactionDetailPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/account" element={<AccountPage />} />
+          </Route>
+          <Route element={<RequireAccount adminOnly />}>
+            <Route path="/admin" element={<AdminPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </ErrorBoundary>
       <footer className={`site-footer${isLanding ? ' landing-footer' : ''}`}>
         {isLanding
           ? 'CampusTrade is a student project for WMSU. It is not run by the university.'

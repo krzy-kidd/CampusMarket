@@ -60,6 +60,9 @@
   --control-height-lg: 3rem;
   --content-width: 1240px;
   --content-width-wide: 1500px;
+  --layout-page-gutter: clamp(1rem, 3vw, 2rem);
+  --layout-page-top: clamp(1.5rem, 4vw, 2.75rem);
+  --layout-page-bottom: clamp(2.5rem, 5vw, 4rem);
 
   --ink: var(--color-ink);
   --muted: var(--color-muted);

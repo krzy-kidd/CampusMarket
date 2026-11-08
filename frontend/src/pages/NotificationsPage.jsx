@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui.jsx'
 import api from '../lib/api.js'
+import { safeInternalRoute } from '../lib/navigation.js'
 
 const TYPE_LABELS = {
   cor_verification_reviewed: 'COR verification update',
@@ -19,15 +20,6 @@ function formatDateTime(value) {
   if (!value) return 'Date unavailable'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
-}
-
-function safeInternalPath(path) {
-  return typeof path === 'string'
-    && path.startsWith('/')
-    && !path.startsWith('//')
-    && !path.includes('\\')
-    ? path
-    : null
 }
 
 export default function NotificationsPage() {
@@ -95,7 +87,7 @@ export default function NotificationsPage() {
   }
 
   async function markRead(notification, open = false) {
-    const destination = safeInternalPath(notification.action_url)
+    const destination = safeInternalRoute(notification.action_url, null)
     if (notification.is_read) {
       if (open && destination) navigate(destination)
       return

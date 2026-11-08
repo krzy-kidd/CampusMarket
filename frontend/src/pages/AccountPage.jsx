@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Badge, Button, Card, FormField, TextInput } from '../components/ui.jsx'
 import api from '../lib/api.js'
+import { safeInternalRoute } from '../lib/navigation.js'
 
 const VERIFICATION_STATUSES = {
   not_configured: {
@@ -160,13 +161,7 @@ export function AuthPage({ mode }) {
         `/api/auth/${isRegister ? 'register' : 'login'}`,
         form,
       )
-      const returnTo = location.state?.returnTo
-      const destination = typeof returnTo === 'string'
-        && returnTo.startsWith('/')
-        && !returnTo.startsWith('//')
-        && !returnTo.includes('\\')
-        ? returnTo
-        : '/account'
+      const destination = safeInternalRoute(location.state?.returnTo)
       navigate(destination, { replace: true, state: { notice: data.message } })
     } catch (requestError) {
       setError(errorMessage(requestError))
@@ -432,7 +427,11 @@ export function VerifyEmailPage() {
       try {
         const apiUrl = new URL(api.defaults.baseURL, window.location.origin)
         const verificationUrl = signedUrl ? new URL(signedUrl, apiUrl) : null
-        if (!verificationUrl || verificationUrl.origin !== apiUrl.origin) {
+        const isVerificationEndpoint = verificationUrl
+          && /^\/api\/auth\/email\/verify\/\d+\/[a-f\d]{40}$/i.test(verificationUrl.pathname)
+          && verificationUrl.searchParams.has('expires')
+          && verificationUrl.searchParams.has('signature')
+        if (!isVerificationEndpoint || verificationUrl.origin !== apiUrl.origin) {
           throw new Error('This verification link is invalid.')
         }
         await csrfCookie()
@@ -606,6 +605,9 @@ export function AccountPage() {
         <p className="eyebrow">Student account</p>
         <h1>Welcome, {account.first_name}</h1>
         <p className="status-detail verification-account-email">{account.email}</p>
+        <div className="status-actions">
+          <Link className="primary-link" to="/dashboard">Open student dashboard</Link>
+        </div>
         {account.admin_role && (
           <div className="status-actions">
             <Link className="primary-link" to="/admin">Admin dashboard</Link>
