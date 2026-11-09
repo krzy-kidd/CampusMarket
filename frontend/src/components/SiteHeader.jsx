@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api.js'
+import { getCurrentUser } from '../lib/session.js'
 
 export default function SiteHeader({ variant = 'default', pathname = '' }) {
   const isAuth = variant === 'auth'
@@ -30,7 +31,7 @@ export default function SiteHeader({ variant = 'default', pathname = '' }) {
     if (isAuth) return undefined
 
     let active = true
-    api.get('/api/auth/me')
+    getCurrentUser()
       .then(({ data }) => {
         if (!active) return
         setSession({
@@ -46,93 +47,48 @@ export default function SiteHeader({ variant = 'default', pathname = '' }) {
   }, [isAuth, pathname])
 
   useEffect(() => {
-    if (session.status !== 'signed-in' || session.user.admin_role) {
+    if (isAuth || session.status !== 'signed-in' || session.user.admin_role) {
       return undefined
     }
 
     let active = true
-    const loadUnreadCount = () => {
-      api.get('/api/auth/notifications')
-        .then(({ data }) => {
-          if (active) setUnreadNotifications(Number(data.unread_count) || 0)
-        })
-        .catch((error) => {
-          if (active && error.response?.status !== 401) {
-            console.error('Could not load unread notification count.', error)
-          }
-        })
-    }
     const updateUnreadCount = (event) => {
       setUnreadNotifications(Number(event.detail?.unreadCount) || 0)
     }
-    const loadUnreadMessageCount = () => {
-      api.get('/api/auth/conversations')
-        .then(({ data }) => {
-          if (active) setUnreadMessages(Number(data.unread_count) || 0)
-        })
-        .catch((error) => {
-          if (active && error.response?.status !== 401) {
-            console.error('Could not load unread message count.', error)
-          }
-        })
-    }
-    const loadActiveTransactionCount = () => {
-      api.get('/api/auth/transactions')
-        .then(({ data }) => {
-          if (active) setActiveTransactionCount(Number(data.active_count) || 0)
-        })
-        .catch((error) => {
-          if (active && error.response?.status !== 401) {
-            console.error('Could not load active transaction count.', error)
-          }
-        })
-    }
-    const loadAvailableListingCount = () => {
-      api.get('/api/auth/listings')
+    const loadNavigationSummary = () => {
+      api.get('/api/auth/navigation-summary')
         .then(({ data }) => {
           if (!active) return
-          const listings = Array.isArray(data.listings) ? data.listings : []
-          setAvailableListingCount(listings.filter((listing) => listing.listing_status === 'available').length)
+          setUnreadNotifications(Number(data.unread_notifications) || 0)
+          setUnreadMessages(Number(data.unread_messages) || 0)
+          setActiveTransactionCount(Number(data.active_transactions) || 0)
+          setAvailableListingCount(Number(data.available_listings) || 0)
         })
         .catch((error) => {
           if (active && error.response?.status !== 401) {
-            console.error('Could not load available listing count.', error)
+            console.error('Could not load navigation counts.', error)
           }
         })
     }
 
-    loadUnreadCount()
-    loadUnreadMessageCount()
-    loadActiveTransactionCount()
-    loadAvailableListingCount()
-    const intervalId = window.setInterval(() => {
-      loadUnreadCount()
-      loadUnreadMessageCount()
-      loadActiveTransactionCount()
-      loadAvailableListingCount()
-    }, 60000)
-    window.addEventListener('focus', loadUnreadCount)
-    window.addEventListener('focus', loadUnreadMessageCount)
-    window.addEventListener('focus', loadActiveTransactionCount)
-    window.addEventListener('focus', loadAvailableListingCount)
+    loadNavigationSummary()
+    const intervalId = window.setInterval(loadNavigationSummary, 60000)
+    window.addEventListener('focus', loadNavigationSummary)
     window.addEventListener('campustrade:notifications-updated', updateUnreadCount)
-    window.addEventListener('campustrade:messages-updated', loadUnreadMessageCount)
-    window.addEventListener('campustrade:transactions-updated', loadActiveTransactionCount)
-    window.addEventListener('campustrade:listings-updated', loadAvailableListingCount)
+    window.addEventListener('campustrade:messages-updated', loadNavigationSummary)
+    window.addEventListener('campustrade:transactions-updated', loadNavigationSummary)
+    window.addEventListener('campustrade:listings-updated', loadNavigationSummary)
 
     return () => {
       active = false
       window.clearInterval(intervalId)
-      window.removeEventListener('focus', loadUnreadCount)
-      window.removeEventListener('focus', loadUnreadMessageCount)
-      window.removeEventListener('focus', loadActiveTransactionCount)
-      window.removeEventListener('focus', loadAvailableListingCount)
+      window.removeEventListener('focus', loadNavigationSummary)
       window.removeEventListener('campustrade:notifications-updated', updateUnreadCount)
-      window.removeEventListener('campustrade:messages-updated', loadUnreadMessageCount)
-      window.removeEventListener('campustrade:transactions-updated', loadActiveTransactionCount)
-      window.removeEventListener('campustrade:listings-updated', loadAvailableListingCount)
+      window.removeEventListener('campustrade:messages-updated', loadNavigationSummary)
+      window.removeEventListener('campustrade:transactions-updated', loadNavigationSummary)
+      window.removeEventListener('campustrade:listings-updated', loadNavigationSummary)
     }
-  }, [pathname, session.status, session.user?.admin_role])
+  }, [isAuth, session.status, session.user?.id, session.user?.admin_role])
 
   return (
     <header className={`site-header${isLanding ? ' landing-header' : ' app-site-header'}${menuOpen ? ' is-open' : ''}`}>

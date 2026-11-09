@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\Admin;
 use App\Models\AcademicYear;
+use App\Models\Admin;
 use App\Models\Category;
 use App\Models\Conversation;
 use App\Models\Listing;
@@ -309,13 +309,7 @@ class AdminDashboardTest extends TestCase
             'buyer_id' => $buyer->id,
             'seller_id' => $student->id,
         ]);
-        $transaction = Transaction::query()->create([
-            'listing_id' => $listing->id,
-            'buyer_id' => $buyer->id,
-            'seller_id' => $student->id,
-            'agreed_price' => '100.00',
-            'transaction_status' => 'completed',
-        ]);
+        $transaction = $this->createCompletedTransaction($listing, $buyer, $student);
         $conversation->update(['transaction_id' => $transaction->id]);
         $buyerListing = Listing::query()->create([
             'seller_id' => $listingOwner->id,

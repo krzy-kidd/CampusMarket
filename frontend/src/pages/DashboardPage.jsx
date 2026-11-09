@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui.jsx'
 import api from '../lib/api.js'
+import { getCurrentUser } from '../lib/session.js'
 import './DashboardPage.css'
 
 const TRANSACTION_LABELS = {
@@ -40,7 +41,7 @@ export default function DashboardPage() {
   useEffect(() => {
     let active = true
     Promise.allSettled([
-      api.get('/api/auth/me'),
+      getCurrentUser(),
       api.get('/api/auth/verification/status'),
       api.get('/api/auth/transactions'),
       api.get('/api/auth/conversations'),

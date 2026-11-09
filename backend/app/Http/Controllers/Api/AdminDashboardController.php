@@ -40,6 +40,7 @@ class AdminDashboardController extends Controller
             'role' => $role,
             'current_academic_year' => AcademicYear::query()->where('is_current', true)->value('academic_year'),
             'pending_verifications' => Verification::query()->where('submission_status', 'pending')->count(),
+            'demo_mailbox_enabled' => $role === 'super_admin' && config('app.env') === 'local',
         ];
 
         if ($role === 'super_admin') {
@@ -71,7 +72,7 @@ class AdminDashboardController extends Controller
             'mysql', 'mariadb' => "DATE_FORMAT(created_at, '%Y-%m')",
             'sqlite' => "strftime('%Y-%m', created_at)",
             'pgsql' => "to_char(created_at, 'YYYY-MM')",
-            default => throw new \RuntimeException('Monthly analytics are not supported by this database driver.'),
+            default => throw new RuntimeException('Monthly analytics are not supported by this database driver.'),
         };
         $start = now()->startOfMonth()->subMonths(5);
         $end = now()->startOfMonth()->addMonth();

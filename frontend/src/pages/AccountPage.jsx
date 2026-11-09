@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Badge, Button, Card, FormField, SelectInput, TextInput } from '../components/ui.jsx'
 import api from '../lib/api.js'
+import { cacheCurrentUser, clearCurrentUserCache, getCurrentUser } from '../lib/session.js'
 import { safeInternalRoute } from '../lib/navigation.js'
 import CorFileViewer from '../components/CorFileViewer.jsx'
 
@@ -77,8 +78,8 @@ const VERIFICATION_STATUSES = {
   },
 }
 
-async function fetchAccountData() {
-  const { data: me } = await api.get('/api/auth/me')
+async function fetchAccountData({ refreshUser = false } = {}) {
+  const { data: me } = await getCurrentUser({ refresh: refreshUser })
   if (me.user.admin_role) return { account: me.user, verification: null }
 
   const { data: verification } = await api.get('/api/auth/verification/status')
@@ -236,6 +237,7 @@ export function AuthPage({ mode }) {
         `/api/auth/${isRegister ? 'register' : 'login'}`,
         isRegister ? registrationForm : form,
       )
+      cacheCurrentUser(data.user)
       const destination = safeInternalRoute(location.state?.returnTo, '/marketplace')
       navigate(destination, { replace: true, state: { notice: data.message } })
     } catch (requestError) {
@@ -531,7 +533,10 @@ export function VerifyEmailPage() {
         }
         await csrfCookie()
         const { data } = await api.get(verificationUrl.href)
-        if (active) setResult({ status: 'success', message: data.message })
+        if (active) {
+          clearCurrentUserCache()
+          setResult({ status: 'success', message: data.message })
+        }
       } catch (requestError) {
         if (active) {
           setResult({
@@ -587,7 +592,7 @@ export function AccountPage() {
 
   async function loadAccount() {
     try {
-      const data = await fetchAccountData()
+      const data = await fetchAccountData({ refreshUser: true })
       setAccount(data.account)
       setVerification(data.verification)
       setLoading(false)
@@ -692,6 +697,7 @@ export function AccountPage() {
     try {
       await csrfCookie()
       await api.post('/api/auth/logout')
+      clearCurrentUserCache()
       navigate('/login', { replace: true })
     } catch (requestError) {
       setError(errorMessage(requestError))

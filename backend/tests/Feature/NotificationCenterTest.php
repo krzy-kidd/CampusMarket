@@ -3,8 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\Category;
+use App\Models\Conversation;
 use App\Models\Listing;
+use App\Models\Message;
 use App\Models\Notification;
+use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -141,5 +144,74 @@ class NotificationCenterTest extends TestCase
             'notification_type' => 'transaction_update',
             'action_url' => '/transactions/'.$transactionId,
         ]);
+    }
+
+    public function test_navigation_summary_returns_compact_counts_for_the_signed_in_student(): void
+    {
+        $user = User::factory()->create();
+        $seller = User::factory()->create();
+        $otherUser = User::factory()->create();
+        $category = Category::query()->create(['category_name' => 'Textbooks']);
+        $listing = Listing::query()->create([
+            'seller_id' => $seller->id,
+            'category_id' => $category->id,
+            'title' => 'Course textbook',
+            'description' => 'Used textbook in good condition.',
+            'price' => '250.00',
+            'condition_rating' => 2,
+        ]);
+        $conversation = Conversation::query()->create([
+            'listing_id' => $listing->id,
+            'buyer_id' => $user->id,
+            'seller_id' => $seller->id,
+        ]);
+        Message::query()->create([
+            'conversation_id' => $conversation->id,
+            'sender_id' => $seller->id,
+            'message_text' => 'Is this still available?',
+        ]);
+        Transaction::query()->create([
+            'listing_id' => $listing->id,
+            'buyer_id' => $user->id,
+            'seller_id' => $seller->id,
+            'agreed_price' => $listing->price,
+        ]);
+        Listing::query()->create([
+            'seller_id' => $user->id,
+            'category_id' => $category->id,
+            'title' => 'Available item',
+            'description' => 'An available item.',
+            'price' => '100.00',
+            'condition_rating' => 2,
+            'listing_status' => 'available',
+        ]);
+        Listing::query()->create([
+            'seller_id' => $user->id,
+            'category_id' => $category->id,
+            'title' => 'Archived item',
+            'description' => 'An archived item.',
+            'price' => '100.00',
+            'condition_rating' => 2,
+            'listing_status' => 'archived',
+        ]);
+        Notification::query()->create([
+            'user_id' => $user->id,
+            'notification_type' => 'transaction_update',
+            'message' => 'A transaction needs your attention.',
+        ]);
+        Notification::query()->create([
+            'user_id' => $otherUser->id,
+            'notification_type' => 'transaction_update',
+            'message' => 'Another student update.',
+        ]);
+
+        $this->actingAs($user)->getJson('/api/auth/navigation-summary')
+            ->assertOk()
+            ->assertExactJson([
+                'unread_notifications' => 1,
+                'unread_messages' => 1,
+                'active_transactions' => 1,
+                'available_listings' => 1,
+            ]);
     }
 }

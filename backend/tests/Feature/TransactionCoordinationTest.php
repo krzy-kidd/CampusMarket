@@ -69,13 +69,20 @@ class TransactionCoordinationTest extends TestCase
 
         foreach (['completed', 'cancelled'] as $status) {
             $listing = $this->createListing($seller);
-            Transaction::query()->create([
-                'listing_id' => $listing->id,
-                'buyer_id' => $buyer->id,
-                'seller_id' => $seller->id,
-                'agreed_price' => $listing->price,
-                'transaction_status' => $status,
-            ]);
+            if ($status === 'completed') {
+                $this->createCompletedTransaction($listing, $buyer, $seller);
+            } else {
+                $transaction = Transaction::query()->create([
+                    'listing_id' => $listing->id,
+                    'buyer_id' => $buyer->id,
+                    'seller_id' => $seller->id,
+                    'agreed_price' => $listing->price,
+                ]);
+                $transaction->update([
+                    'transaction_status' => 'cancelled',
+                    'cancellation_reason' => 'The participants cancelled the purchase.',
+                ]);
+            }
         }
 
         $this->actingAs($buyer)->getJson('/api/auth/transactions')

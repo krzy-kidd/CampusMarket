@@ -4,8 +4,10 @@ use App\Http\Controllers\Api\AdminDashboardController;
 use App\Http\Controllers\Api\AdminVerificationController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ConversationController;
+use App\Http\Controllers\Api\DemoEmailController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\ListingController;
+use App\Http\Controllers\Api\NavigationSummaryController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TransactionController;
@@ -35,6 +37,7 @@ Route::prefix('auth')->group(function () {
             ->name('verification.verify');
 
         Route::middleware('student.account')->group(function () {
+            Route::get('/navigation-summary', NavigationSummaryController::class);
             Route::get('/verification/status', [VerificationController::class, 'status']);
             Route::get('/verification/history', [VerificationController::class, 'history']);
             Route::get('/listings', [ListingController::class, 'mine']);
@@ -111,6 +114,10 @@ Route::prefix('auth')->group(function () {
                     ->whereNumber(['verification', 'attempt']);
 
                 Route::middleware('super.admin')->group(function () {
+                    Route::get('/demo-emails', [DemoEmailController::class, 'index']);
+                    Route::delete('/demo-emails', [DemoEmailController::class, 'clear'])
+                        ->middleware('throttle:5,1');
+
                     Route::get('/academic-years', [AdminDashboardController::class, 'academicYears']);
                     Route::post('/academic-years', [AdminDashboardController::class, 'storeAcademicYear']);
                     Route::patch('/academic-years/{academicYear}', [AdminDashboardController::class, 'updateAcademicYear'])

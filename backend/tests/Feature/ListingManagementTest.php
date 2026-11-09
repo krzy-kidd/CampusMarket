@@ -143,6 +143,14 @@ class ListingManagementTest extends TestCase
         ])->assertCreated()
             ->assertJsonCount(12, 'listing.images');
 
+        $this->getJson('/api/listings')
+            ->assertOk()
+            ->assertJsonCount(1, 'listings.0.images');
+
+        $this->actingAs($seller)->getJson('/api/auth/listings')
+            ->assertOk()
+            ->assertJsonCount(1, 'listings.0.images');
+
         $tooManyImages = $images;
         $tooManyImages[] = $this->fakeImage();
         $this->actingAs($seller)->postJson('/api/auth/listings', [
@@ -168,6 +176,31 @@ class ListingManagementTest extends TestCase
         ])->assertForbidden();
         $this->actingAs($buyer)->deleteJson('/api/auth/listings/'.$listing['id'])
             ->assertForbidden();
+    }
+
+    public function test_inactive_students_cannot_edit_archive_or_submit_cor_documents(): void
+    {
+        $student = User::factory()->create(['account_status' => 'suspended']);
+        $category = $this->createCategory();
+        $listing = Listing::query()->create([
+            'seller_id' => $student->id,
+            ...$this->listingDetails($category),
+            'listing_status' => 'available',
+        ]);
+
+        $this->actingAs($student)->patchJson('/api/auth/listings/'.$listing->id, [
+            'title' => 'Suspended account edit',
+        ])->assertForbidden();
+        $this->deleteJson('/api/auth/listings/'.$listing->id)->assertForbidden();
+        $this->postJson('/api/auth/verification/cor', [
+            'cor' => $this->fakeImage(),
+        ])->assertForbidden();
+
+        $this->assertDatabaseHas('listings', [
+            'id' => $listing->id,
+            'title' => 'Used textbook',
+            'listing_status' => 'available',
+        ]);
     }
 
     public function test_listing_image_model_uses_the_configured_image_disk_url(): void

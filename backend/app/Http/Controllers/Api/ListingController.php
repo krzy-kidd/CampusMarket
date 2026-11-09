@@ -8,10 +8,10 @@ use App\Models\Category;
 use App\Models\Listing;
 use App\Models\Review;
 use App\Models\Verification;
-use Illuminate\Support\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -80,7 +80,7 @@ class ListingController extends Controller
             ->with([
                 'category.parent:id,category_name',
                 'seller:id,first_name,last_name,account_status,email_verified_at',
-                'images' => fn ($query) => $query->orderBy('position'),
+                'images' => fn ($query) => $query->orderBy('position')->limit(1),
             ]);
 
         if (isset($filters['search']) && trim($filters['search']) !== '') {
@@ -173,7 +173,7 @@ class ListingController extends Controller
             ->with([
                 'category.parent:id,category_name',
                 'seller:id,first_name,last_name,account_status,email_verified_at',
-                'images' => fn ($query) => $query->orderBy('position'),
+                'images' => fn ($query) => $query->orderBy('position')->limit(1),
             ])
             ->orderByDesc('created_at')
             ->get();

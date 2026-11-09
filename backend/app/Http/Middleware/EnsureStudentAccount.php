@@ -10,11 +10,10 @@ class EnsureStudentAccount
 {
     public function handle(Request $request, Closure $next): Response
     {
-        abort_if(
-            $request->user()->admin()->exists(),
-            403,
-            'Administrator accounts cannot use student marketplace features.',
-        );
+        $user = $request->user();
+
+        abort_if($user->admin()->exists(), 403, 'Administrator accounts cannot use student marketplace features.');
+        abort_unless($user->account_status === 'active', 403, 'An active student account is required for marketplace actions.');
 
         return $next($request);
     }

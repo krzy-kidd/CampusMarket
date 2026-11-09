@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Badge, Button, FormField, Modal, SelectInput, TextArea, TextInput } from '../components/ui.jsx'
 import api from '../lib/api.js'
+import { getCurrentUser } from '../lib/session.js'
 
 const CONDITION_LABELS = {
   1: 'Very good',
@@ -56,7 +57,7 @@ function ListingCard({ listing, currentTime }) {
     <article className="listing-card">
       <Link className="listing-card-image" to={`/listings/${listing.id}`}>
         {listing.images[0] ? (
-          <img src={listing.images[0].url} alt={listing.title} />
+          <img src={listing.images[0].url} alt={listing.title} loading="lazy" decoding="async" />
         ) : (
           <span>No photo</span>
         )}
@@ -471,7 +472,7 @@ export function ListingDetailPage() {
 
   useEffect(() => {
     let active = true
-    api.get('/api/auth/me')
+    getCurrentUser()
       .then(({ data }) => {
         if (active) {
           setViewer(data.user)
@@ -606,7 +607,7 @@ export function ListingDetailPage() {
       <article className="listing-detail">
         <div className="listing-gallery">
           {listing.images.length ? listing.images.map((image) => (
-            <img key={image.id} src={image.url} alt={listing.title} />
+            <img key={image.id} src={image.url} alt={listing.title} loading="lazy" decoding="async" />
           )) : <div className="listing-gallery-empty">No photos available</div>}
         </div>
         <div className="listing-detail-copy">
@@ -825,11 +826,11 @@ export function MyListingsPage() {
             <article className="seller-listing" key={listing.id}>
               {listing.listing_status === 'available' ? (
                 <Link className="seller-listing-image" to={`/listings/${listing.id}`}>
-                  {listing.images[0] ? <img src={listing.images[0].url} alt={listing.title} /> : <span>No photo</span>}
+                  {listing.images[0] ? <img src={listing.images[0].url} alt={listing.title} loading="lazy" decoding="async" /> : <span>No photo</span>}
                 </Link>
               ) : (
                 <div className="seller-listing-image">
-                  {listing.images[0] ? <img src={listing.images[0].url} alt={listing.title} /> : <span>No photo</span>}
+                  {listing.images[0] ? <img src={listing.images[0].url} alt={listing.title} loading="lazy" decoding="async" /> : <span>No photo</span>}
                 </div>
               )}
               <div className="seller-listing-info">
@@ -930,7 +931,7 @@ export function ListingFormPage() {
       try {
         const [categoryResponse, accountResponse, verificationResponse] = await Promise.all([
           api.get('/api/categories'),
-          api.get('/api/auth/me'),
+          getCurrentUser(),
           api.get('/api/auth/verification/status'),
         ])
         let currentListing = null
@@ -1144,7 +1145,7 @@ export function ListingFormPage() {
               <div className="existing-image-grid">
                 {existingImages.map((image) => (
                   <label key={image.id} className={removeImageIds.includes(image.id) ? 'existing-image is-removed' : 'existing-image'}>
-                    <img src={image.url} alt="" />
+                    <img src={image.url} alt="" loading="lazy" decoding="async" />
                     <span><input type="checkbox" checked={removeImageIds.includes(image.id)} onChange={() => toggleImageRemoval(image.id)} /> Remove</span>
                   </label>
                 ))}

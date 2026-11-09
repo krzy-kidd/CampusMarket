@@ -162,6 +162,9 @@ verification and password-reset links return to the frontend. The example
 environment uses `MAIL_MAILER=log`; locally, messages are written to
 `backend/storage/logs/laravel.log`. Configure a real SMTP mailer before sending
 messages to students.
+When `APP_ENV=local`, newly generated verification and password-reset links also
+appear in **Admin → Demo email preview** for Super Admins. Links expire and
+verification must be completed while signed in as the student.
 
 Create the initial administrator from the backend terminal with
 `& $php artisan campustrade:bootstrap-super-admin`. The command prompts for
@@ -198,13 +201,13 @@ Open `/marketplace` to browse available fixed-price listings. Verified students
 can create and manage listings from `/my-listings`; publishing and relisting
 require an active account, a verified WMSU email, and an approved COR for the
 current academic year. Listings require a leaf category, a positive PHP price,
-a condition rating from 1 (Very good) to 4 (Poor), and 1–5 actual product photos
+a condition rating from 1 (Very good) to 4 (Poor), and 1–12 actual product photos
 (JPG, PNG, or WebP; up to 5 MB each). Sellers can edit or archive available
 listings. Archiving preserves the listing and transaction history; active or
 sold listings cannot be edited or removed.
 For local PHP uploads, set `upload_max_filesize` to at least `5M` and
-`post_max_size` to at least `30M` so multi-photo forms fit within PHP's request
-limit.
+`post_max_size` to at least `65M` so a listing with twelve 5 MB photos plus
+multipart form data fits within PHP's request limit.
 
 Run `& $php artisan db:seed` to add any missing standard marketplace
 categories and subcategories. The seeder is additive and does not create

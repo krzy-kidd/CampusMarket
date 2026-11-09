@@ -1394,6 +1394,14 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.demo-email-url {
+  display: block;
+  margin-top: 0.5rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  width: 100%;
+}
+
 .admin-record-row {
   align-items: center;
   display: flex;

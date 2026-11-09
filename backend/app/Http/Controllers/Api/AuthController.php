@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AcademicYear;
+use App\Models\DemoEmail;
 use App\Models\User;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Verified;
@@ -161,6 +162,10 @@ class AuthController extends Controller
             $user->markEmailAsVerified();
             event(new Verified($user));
         }
+        DemoEmail::query()
+            ->where('user_id', $user->id)
+            ->where('email_type', 'email_verification')
+            ->delete();
 
         return response()->json([
             'message' => 'Email marked verified for local testing only. This does not verify your real email address.',
@@ -178,6 +183,10 @@ class AuthController extends Controller
             $user->markEmailAsVerified();
             event(new Verified($user));
         }
+        DemoEmail::query()
+            ->where('user_id', $user->id)
+            ->where('email_type', 'email_verification')
+            ->delete();
 
         return response()->json(['message' => 'Your WMSU email address has been verified.']);
     }
@@ -210,6 +219,10 @@ class AuthController extends Controller
             ])->save();
 
             event(new PasswordReset($user));
+            DemoEmail::query()
+                ->where('user_id', $user->id)
+                ->where('email_type', 'password_reset')
+                ->delete();
         });
 
         if ($status !== Password::PASSWORD_RESET) {

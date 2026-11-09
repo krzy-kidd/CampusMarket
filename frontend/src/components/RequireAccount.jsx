@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { Button } from './ui.jsx'
-import api from '../lib/api.js'
+import { getCurrentUser } from '../lib/session.js'
 
 export default function RequireAccount({
   adminOnly = false,
@@ -15,7 +15,7 @@ export default function RequireAccount({
 
   useEffect(() => {
     let active = true
-    api.get('/api/auth/me')
+    getCurrentUser()
       .then(({ data }) => {
         if (!active) return
         const user = data.user

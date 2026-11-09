@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api.js'
+import { getCurrentUser } from '../lib/session.js'
 import CorFileViewer from '../components/CorFileViewer.jsx'
 
 const sections = [
@@ -14,6 +15,7 @@ const sections = [
   ['reports', 'Reports'],
   ['platform-settings', 'Platform settings'],
   ['audit-logs', 'Audit logs'],
+  ['demo-emails', 'Demo email preview'],
 ]
 
 function getError(error) {
@@ -24,7 +26,7 @@ function getError(error) {
 
 async function fetchAdminData(section, search, page = 1) {
   const [{ data: me }, { data: summary }] = await Promise.all([
-    api.get('/api/auth/me'),
+    getCurrentUser(),
     api.get('/api/auth/admin/dashboard'),
   ])
   const isSuperAdmin = me.user.admin_role === 'super_admin'
@@ -38,6 +40,7 @@ async function fetchAdminData(section, search, page = 1) {
     reports: 'reports',
     'platform-settings': 'platform-settings',
     'audit-logs': 'audit-logs',
+    'demo-emails': 'demo-emails',
   }
   const params = {
     ...(section === 'students' && search ? { search } : {}),
@@ -62,7 +65,7 @@ async function fetchAdminData(section, search, page = 1) {
     dashboard: summary,
     records: data.platform_settings
       ? [data.platform_settings]
-      : data.data || data.verifications || data.academic_years || data.categories || data.admins || data.listings || [],
+      : data.data || data.verifications || data.academic_years || data.categories || data.admins || data.listings || data.demo_emails || [],
     nextPage: Number.isInteger(data.current_page) && data.current_page < data.last_page
       ? data.current_page + 1
       : null,
@@ -91,7 +94,9 @@ function AdminPage() {
   const mutationRequestId = useRef(0)
 
   const isSuperAdmin = user?.admin_role === 'super_admin'
-  const visibleSections = isSuperAdmin ? sections : sections.slice(0, 2)
+  const visibleSections = isSuperAdmin
+    ? sections.filter(([key]) => key !== 'demo-emails' || dashboard?.demo_mailbox_enabled)
+    : sections.slice(0, 2)
 
   async function load(
     targetSection = section,
@@ -205,7 +210,7 @@ function AdminPage() {
     setMessage('')
     try {
       await api[verb](`/api/auth/admin/${endpoint}`, payload)
-      const { data: account } = await api.get('/api/auth/me')
+      const { data: account } = await getCurrentUser({ refresh: true })
       const lostSuperAdminAccess = isSuperAdmin && account.user.admin_role !== 'super_admin'
       setUser(account.user)
 
@@ -379,6 +384,9 @@ function AdminPage() {
                   />
                 )}
                 {isSuperAdmin && section === 'audit-logs' && <AuditLogs records={records} />}
+                {isSuperAdmin && section === 'demo-emails' && dashboard.demo_mailbox_enabled && (
+                  <DemoEmails records={records} busy={busy} onClear={() => remove('demo-emails', 'Clear all local demo email links?')} />
+                )}
                 {nextPage && (
                   <div className="admin-pagination">
                     <span>{records.length} records loaded</span>
@@ -836,6 +844,61 @@ function Reports({ records, busy, onUpdate }) {
           </article>
         ))}
         {!records.length && <p className="status-detail">No reports found.</p>}
+      </div>
+    </>
+  )
+}
+
+function DemoEmails({ records, busy, onClear }) {
+  const [copiedId, setCopiedId] = useState(null)
+  const [copyError, setCopyError] = useState('')
+
+  async function copyVerificationLink(email) {
+    try {
+      await navigator.clipboard.writeText(email.action_url)
+      setCopiedId(email.id)
+      setCopyError('')
+    } catch {
+      setCopyError('Clipboard access is unavailable. Expand “Show link” and copy it manually.')
+    }
+  }
+
+  return (
+    <>
+      <div className="admin-record-row">
+        <div>
+          <h2>Demo email preview</h2>
+          <p>Local presentation links for password resets and WMSU email verification.</p>
+        </div>
+        <button type="button" className="danger-button" disabled={busy || !records.length} onClick={onClear}>
+          Clear inbox
+        </button>
+      </div>
+      <p className="status-detail">
+        Links expire after 60 minutes. Password reset links can change the recipient’s password. Email verification links must be opened in a session signed in as that student.
+      </p>
+      {copyError && <p className="form-error" role="alert">{copyError}</p>}
+      <div className="admin-record-list">
+        {records.map((email) => (
+          <article className="admin-record" key={email.id}>
+            <h3>{email.email_type === 'password_reset' ? 'Password reset' : 'Email verification'}</h3>
+            <p>To {email.recipient_email} · generated {formatDateTime(email.created_at)} · expires {formatDateTime(email.expires_at)}</p>
+            {email.email_type === 'password_reset' ? (
+              <a className="secondary-link" href={email.action_url} target="_blank" rel="noreferrer">
+                Open reset form
+              </a>
+            ) : (
+              <button type="button" className="secondary-link" onClick={() => copyVerificationLink(email)}>
+                {copiedId === email.id ? 'Link copied' : 'Copy verification link'}
+              </button>
+            )}
+            <details>
+              <summary>Show link</summary>
+              <textarea className="demo-email-url" readOnly value={email.action_url} onFocus={(event) => event.target.select()} rows={3} />
+            </details>
+          </article>
+        ))}
+        {!records.length && <p className="status-detail">No demo emails yet. Request a password reset or resend email verification from a student account.</p>}
       </div>
     </>
   )
