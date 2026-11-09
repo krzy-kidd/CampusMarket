@@ -1108,7 +1108,7 @@ h1 {
 .admin-chart {
   display: block;
   height: auto;
-  overflow: visible;
+  overflow: hidden;
   width: 100%;
 }
 
@@ -1130,6 +1130,8 @@ h1 {
   overflow: hidden;
   position: absolute;
   width: 1px;
+  max-width: 1px;
+  table-layout: fixed;
   clip: rect(0, 0, 0, 0);
   clip-path: inset(50%);
   white-space: nowrap;
@@ -1642,11 +1644,12 @@ h1 {
 
 @media (max-width: 900px) {
   .admin-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .admin-sidebar {
     min-height: 0;
+    min-width: 0;
     position: static;
   }
 
@@ -1655,16 +1658,21 @@ h1 {
   }
 
   .admin-nav {
-    display: flex;
-    overflow-x: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr));
   }
 
   .admin-nav button {
-    flex: 0 0 auto;
+    min-width: 0;
+    width: 100%;
   }
 }
 
 @media (max-width: 700px) {
+  .admin-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .admin-student-record {
     align-items: stretch;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -2337,6 +2345,11 @@ h1 {
     max-width: 100%;
   }
 
+  .admin-panel-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
   .admin-overview-grid {
     grid-template-columns: 1fr;
   }
@@ -2403,8 +2416,11 @@ h1 {
 
 @media (max-width: 760px) {
   .page-back {
-    left: 0.75rem;
-    top: 4.75rem;
+    align-self: flex-start;
+    left: auto;
+    margin: 0.5rem var(--layout-page-gutter) 0;
+    position: static;
+    top: auto;
   }
 }
 
