@@ -29,6 +29,13 @@ class AuthenticationAndVerificationTest extends TestCase
         $this->withHeader('Origin', 'http://localhost:5173');
     }
 
+    public function test_unauthenticated_api_requests_return_json_without_an_accept_header(): void
+    {
+        $this->get('/api/auth/me')
+            ->assertUnauthorized()
+            ->assertJsonPath('message', 'Unauthenticated.');
+    }
+
     public function test_registration_requires_wmsu_email_and_verification_is_signed_and_account_bound(): void
     {
         Notification::fake();

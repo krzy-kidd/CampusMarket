@@ -17,6 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
+        $middleware->redirectGuestsTo(
+            fn (Request $request): ?string => $request->is('api/*') ? null : route('login'),
+        );
         $middleware->alias([
             'verification.admin' => EnsureActiveVerificationAdmin::class,
             'student.account' => EnsureStudentAccount::class,
