@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureActiveVerificationAdmin;
+use App\Http\Middleware\EnsureStudentAccount;
 use App\Http\Middleware\EnsureSuperAdmin;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -18,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->statefulApi();
         $middleware->alias([
             'verification.admin' => EnsureActiveVerificationAdmin::class,
+            'student.account' => EnsureStudentAccount::class,
             'super.admin' => EnsureSuperAdmin::class,
         ]);
     })

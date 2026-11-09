@@ -8,6 +8,7 @@ use App\Models\Category;
 use App\Models\Listing;
 use App\Models\Review;
 use App\Models\Verification;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -22,9 +23,11 @@ use Throwable;
 
 class ListingController extends Controller
 {
-    private const MAX_IMAGES = 5;
+    private const MAX_IMAGES = 12;
 
     private const MARKETPLACE_PAGE_SIZE = 12;
+
+    private const SOLD_LISTING_VISIBILITY_MINUTES = 10;
 
     public function categories(): JsonResponse
     {
@@ -59,8 +62,21 @@ class ListingController extends Controller
             ]);
         }
 
+        $soldVisibleSince = now()->subMinutes(self::SOLD_LISTING_VISIBILITY_MINUTES);
         $query = Listing::query()
-            ->where('listing_status', 'available')
+            ->where(function ($query) use ($soldVisibleSince): void {
+                $query->where('listing_status', 'available')
+                    ->orWhere(function ($query) use ($soldVisibleSince): void {
+                        $query->where('listing_status', 'sold')
+                            ->whereHas('transactions', fn ($query) => $query
+                                ->where('transaction_status', 'completed')
+                                ->where('completed_at', '>=', $soldVisibleSince));
+                    });
+            })
+            ->withMax([
+                'transactions as sold_at' => fn ($query) => $query
+                    ->where('transaction_status', 'completed'),
+            ], 'completed_at')
             ->with([
                 'category.parent:id,category_name',
                 'seller:id,first_name,last_name,account_status,email_verified_at',
@@ -129,7 +145,17 @@ class ListingController extends Controller
 
     public function show(Listing $listing): JsonResponse
     {
-        abort_unless($listing->listing_status === 'available', 404);
+        $soldVisibleSince = now()->subMinutes(self::SOLD_LISTING_VISIBILITY_MINUTES);
+        $isRecentlySold = $listing->listing_status === 'sold'
+            && $listing->transactions()
+                ->where('transaction_status', 'completed')
+                ->where('completed_at', '>=', $soldVisibleSince)
+                ->exists();
+        abort_unless($listing->listing_status === 'available' || $isRecentlySold, 404);
+        $listing->loadMax([
+            'transactions as sold_at' => fn ($query) => $query
+                ->where('transaction_status', 'completed'),
+        ], 'completed_at');
         $listing->load([
             'category.parent:id,category_name',
             'seller:id,first_name,last_name,account_status,email_verified_at',
@@ -176,8 +202,8 @@ class ListingController extends Controller
         $this->ensureVerifiedSeller($request);
         $validated = $request->validate([
             'category_id' => ['required', 'integer', 'exists:categories,id'],
-            'title' => ['required', 'string', 'max:200'],
-            'description' => ['required', 'string', 'max:10000'],
+            'title' => ['required', 'string', 'max:120'],
+            'description' => ['required', 'string', 'max:800'],
             'price' => ['required', 'numeric', 'decimal:0,2', 'min:0.01', 'max:99999999.99'],
             'condition_rating' => ['required', 'integer', 'between:1,4'],
             'images' => ['required', 'array', 'min:1', 'max:'.self::MAX_IMAGES],
@@ -224,8 +250,8 @@ class ListingController extends Controller
 
         $validated = $request->validate([
             'category_id' => ['sometimes', 'required', 'integer', 'exists:categories,id'],
-            'title' => ['sometimes', 'required', 'string', 'max:200'],
-            'description' => ['sometimes', 'required', 'string', 'max:10000'],
+            'title' => ['sometimes', 'required', 'string', 'max:120'],
+            'description' => ['sometimes', 'required', 'string', 'max:800'],
             'price' => ['sometimes', 'required', 'numeric', 'decimal:0,2', 'min:0.01', 'max:99999999.99'],
             'condition_rating' => ['sometimes', 'required', 'integer', 'between:1,4'],
             'images' => ['sometimes', 'array', 'max:'.self::MAX_IMAGES],
@@ -412,6 +438,11 @@ class ListingController extends Controller
                 'condition_rating' => $listing->condition_rating,
                 'listing_status' => $listing->listing_status,
                 'created_at' => $listing->created_at,
+                'sold_until' => $listing->listing_status === 'sold' && $listing->sold_at
+                    ? Carbon::parse($listing->sold_at)
+                        ->addMinutes(self::SOLD_LISTING_VISIBILITY_MINUTES)
+                        ->toIso8601String()
+                    : null,
                 'category' => [
                     'id' => $listing->category->id,
                     'name' => $listing->category->category_name,

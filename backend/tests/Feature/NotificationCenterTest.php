@@ -63,11 +63,21 @@ class NotificationCenterTest extends TestCase
         $this->assertSame($readAt->toDateTimeString(), $notifications[0]->fresh()->read_at->toDateTimeString());
 
         $this->patchJson('/api/auth/notifications/'.$otherNotification->id.'/read')->assertNotFound();
+        $this->deleteJson('/api/auth/notifications/'.$notifications[1]->id)
+            ->assertOk()
+            ->assertJsonPath('deleted', true)
+            ->assertJsonPath('unread_count', 29);
+        $this->assertDatabaseMissing('notifications', ['id' => $notifications[1]->id]);
+        $this->deleteJson('/api/auth/notifications/'.$otherNotification->id)->assertNotFound();
+        $this->deleteJson('/api/auth/notifications/'.$notifications[0]->id)
+            ->assertOk()
+            ->assertJsonPath('unread_count', 29);
+        $this->assertDatabaseMissing('notifications', ['id' => $notifications[0]->id]);
         $this->postJson('/api/auth/notifications/read-all')
             ->assertOk()
-            ->assertJsonPath('updated_count', 30)
+            ->assertJsonPath('updated_count', 29)
             ->assertJsonPath('unread_count', 0);
-        $this->assertSame(31, $user->campusNotifications()->where('is_read', true)->count());
+        $this->assertSame(29, $user->campusNotifications()->where('is_read', true)->count());
 
         $suspendedUser = User::factory()->create(['account_status' => 'suspended']);
         $this->actingAs($suspendedUser)->getJson('/api/auth/notifications')->assertForbidden();

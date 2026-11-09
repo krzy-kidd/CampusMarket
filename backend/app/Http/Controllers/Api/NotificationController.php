@@ -67,6 +67,22 @@ class NotificationController extends Controller
         ]);
     }
 
+    public function destroy(Request $request, Notification $notification): JsonResponse
+    {
+        $user = $request->user();
+        $this->ensureActiveAccount($user);
+
+        $notification = $user->campusNotifications()
+            ->whereKey($notification->id)
+            ->firstOrFail();
+        $notification->delete();
+
+        return response()->json([
+            'deleted' => true,
+            'unread_count' => $user->campusNotifications()->where('is_read', false)->count(),
+        ]);
+    }
+
     private function present(Notification $notification): array
     {
         return [

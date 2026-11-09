@@ -123,6 +123,7 @@ class TransactionReviewTest extends TestCase
         ];
         $this->actingAs($seller)->postJson('/api/auth/transactions/'.$transactionId.'/meetup', $meetup)->assertOk();
         $this->actingAs($buyer)->postJson('/api/auth/transactions/'.$transactionId.'/meetup', $meetup)->assertOk();
+        $this->travel(2)->days();
         $this->actingAs($buyer)->postJson('/api/auth/transactions/'.$transactionId.'/complete')
             ->assertOk()
             ->assertJsonPath('transaction.transaction_status', 'meetup_arranged');

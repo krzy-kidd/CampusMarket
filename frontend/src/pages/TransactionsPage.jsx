@@ -38,6 +38,94 @@ function localToday() {
   return `${year}-${month}-${day}`
 }
 
+function MeetupForm({ meetup, setMeetup, performAction, busy, ownMeetupConfirmed, rescheduling = false }) {
+  const [dateConfirmed, setDateConfirmed] = useState(false)
+  const [timeConfirmed, setTimeConfirmed] = useState(false)
+
+  return (
+    <form
+      className="transaction-form"
+      onSubmit={(event) => {
+        event.preventDefault()
+        performAction('meetup', meetup)
+      }}
+    >
+      <div className="form-grid">
+        <div className="ui-field meetup-confirm-field">
+          <label className="ui-field-label" htmlFor="meetup-date">Meetup date</label>
+          <TextInput
+            id="meetup-date"
+            type="date"
+            name="meetup_date"
+            min={localToday()}
+            value={meetup.meetup_date}
+            onChange={(event) => {
+              setMeetup({ ...meetup, meetup_date: event.target.value })
+              setDateConfirmed(false)
+            }}
+            required
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy || !meetup.meetup_date}
+            onClick={() => setDateConfirmed(true)}
+          >
+            {dateConfirmed ? 'Date confirmed' : 'Confirm date'}
+          </Button>
+        </div>
+        <div className="ui-field meetup-confirm-field">
+          <label className="ui-field-label" htmlFor="meetup-time">Meetup time</label>
+          <TextInput
+            id="meetup-time"
+            type="time"
+            name="meetup_time"
+            value={meetup.meetup_time}
+            onChange={(event) => {
+              setMeetup({ ...meetup, meetup_time: event.target.value })
+              setTimeConfirmed(false)
+            }}
+            required
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy || !meetup.meetup_time}
+            onClick={() => setTimeConfirmed(true)}
+          >
+            {timeConfirmed ? 'Time confirmed' : 'Confirm time'}
+          </Button>
+        </div>
+      </div>
+      <FormField label="Public meetup location">
+        <TextInput
+          name="meetup_location"
+          value={meetup.meetup_location}
+          onChange={(event) => setMeetup({ ...meetup, meetup_location: event.target.value })}
+          placeholder="For example, the WMSU main library entrance"
+          maxLength="255"
+          minLength="3"
+          required
+        />
+      </FormField>
+      <Button type="submit" disabled={busy || !dateConfirmed || !timeConfirmed}>
+        {busy
+          ? 'Saving…'
+          : rescheduling
+            ? 'Propose new meetup'
+            : ownMeetupConfirmed
+              ? 'Update meetup details'
+              : 'Confirm meetup details'}
+      </Button>
+    </form>
+  )
+}
+
+function hasMeetupTimeArrived(transaction, currentTime) {
+  const meetupTimestamp = Date.parse(transaction.meetup_at || '')
+  return Number.isFinite(meetupTimestamp) && currentTime >= meetupTimestamp
+}
+
 function signInFor(returnTo, navigate) {
   navigate('/login', { replace: true, state: { returnTo } })
 }
@@ -143,7 +231,9 @@ export function TransactionsPage() {
                 <span className="transaction-card-meta">
                   <strong>{formatPrice(transaction.agreed_price)}</strong>
                   <Badge variant={transaction.transaction_status === 'completed' ? 'success' : 'neutral'}>
-                    {STATUS_LABELS[transaction.transaction_status] || transaction.transaction_status}
+                    {transaction.cancellation_requested_at
+                      ? 'Cancellation requested'
+                      : STATUS_LABELS[transaction.transaction_status] || transaction.transaction_status}
                   </Badge>
                 </span>
               </Link>
@@ -164,7 +254,7 @@ export function TransactionsPage() {
         <section className="marketplace-empty">
           <span className="marketplace-empty-mark" aria-hidden="true">cT</span>
           <h2>No transactions yet</h2>
-          <p>Start a purchase request from a listing conversation to track the agreement and meetup.</p>
+          <p>Choose Buy now on a listing to start a request, then confirm the meetup details together.</p>
           <Link className="primary-link" to="/marketplace">Browse listings</Link>
         </section>
       )}
@@ -184,7 +274,9 @@ export function TransactionDetailPage() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [rescheduleOpen, setRescheduleOpen] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [currentTime, setCurrentTime] = useState(() => Date.now())
 
   useEffect(() => {
     let active = true
@@ -192,6 +284,7 @@ export function TransactionDetailPage() {
       .then(({ data }) => {
         if (!active) return
         setTransaction(data.transaction)
+        window.dispatchEvent(new CustomEvent('campustrade:transactions-updated'))
         setMeetup({
           meetup_date: data.transaction.meetup_date || '',
           meetup_time: data.transaction.meetup_time || '',
@@ -213,6 +306,18 @@ export function TransactionDetailPage() {
     return () => { active = false }
   }, [navigate, reloadKey, transactionId])
 
+  useEffect(() => {
+    const updateCurrentTime = () => setCurrentTime(Date.now())
+    const timerId = window.setInterval(updateCurrentTime, 1000)
+    window.addEventListener('focus', updateCurrentTime)
+    document.addEventListener('visibilitychange', updateCurrentTime)
+    return () => {
+      window.clearInterval(timerId)
+      window.removeEventListener('focus', updateCurrentTime)
+      document.removeEventListener('visibilitychange', updateCurrentTime)
+    }
+  }, [])
+
   async function performAction(action, payload = {}) {
     setBusy(true)
     setError('')
@@ -222,6 +327,7 @@ export function TransactionDetailPage() {
         payload,
       )
       setTransaction(data.transaction)
+      window.dispatchEvent(new CustomEvent('campustrade:transactions-updated'))
       setMeetup({
         meetup_date: data.transaction.meetup_date || '',
         meetup_time: data.transaction.meetup_time || '',
@@ -231,6 +337,28 @@ export function TransactionDetailPage() {
       if (action === 'dispute') setDispute({ reason: '', description: '' })
       setCancelOpen(false)
       setCancellationReason('')
+    } catch (requestError) {
+      if (requestError.response?.status === 401) {
+        signInFor(`/transactions/${transactionId}`, navigate)
+      } else {
+        setError(getErrorMessage(requestError))
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function hideCompletedTransaction() {
+    if (busy || !window.confirm('Remove this completed transaction from your history? It will remain visible to the other participant.')) {
+      return
+    }
+
+    setBusy(true)
+    setError('')
+    try {
+      await api.post(`/api/auth/transactions/${transactionId}/hide-from-history`)
+      window.dispatchEvent(new CustomEvent('campustrade:transactions-updated'))
+      navigate('/transactions', { replace: true })
     } catch (requestError) {
       if (requestError.response?.status === 401) {
         signInFor(`/transactions/${transactionId}`, navigate)
@@ -272,15 +400,37 @@ export function TransactionDetailPage() {
   const isMeetupArranged = transaction.transaction_status === 'meetup_arranged'
   const isSeller = transaction.current_user_role === 'seller'
   const hasUnlockRequest = Boolean(transaction.seller_unlock_requested_at && transaction.buyer_unlock_response_deadline)
-  const canCancel = isPending || (isMeetupArranged && !isSeller)
   const participantId = isSeller ? transaction.seller.id : transaction.buyer.id
+  const hasCancellationRequest = Boolean(transaction.cancellation_requested_at)
+  const cancellationRequestedByMe = Number(transaction.cancellation_requested_by) === Number(participantId)
+  const canCancel = !hasCancellationRequest
+    && !hasUnlockRequest
+    && (isPending || (isMeetupArranged && !isSeller))
+  const ownMeetupConfirmed = Boolean(
+    isSeller ? transaction.seller_meetup_confirmed_at : transaction.buyer_meetup_confirmed_at,
+  )
+  const otherMeetupConfirmed = Boolean(
+    isSeller ? transaction.buyer_meetup_confirmed_at : transaction.seller_meetup_confirmed_at,
+  )
+  const ownCompletionConfirmed = Boolean(
+    isSeller ? transaction.seller_completion_confirmed_at : transaction.buyer_completion_confirmed_at,
+  )
+  const anyCompletionConfirmed = Boolean(
+    transaction.buyer_completion_confirmed_at || transaction.seller_completion_confirmed_at,
+  )
+  const meetupTimeArrived = hasMeetupTimeArrived(transaction, currentTime)
+  const displayStatus = hasCancellationRequest
+    ? 'Cancellation requested'
+    : isMeetupArranged && meetupTimeArrived && !hasUnlockRequest
+      ? 'Scheduled meetup time arrived'
+      : STATUS_LABELS[transaction.transaction_status] || transaction.transaction_status
+  const otherParticipant = isSeller ? transaction.buyer : transaction.seller
   const ownReview = transaction.reviews.find((review) => Number(review.reviewer_id) === Number(participantId))
   const otherReview = transaction.reviews.find((review) => Number(review.reviewer_id) !== Number(participantId))
   const reviewedParticipant = isSeller ? transaction.buyer : transaction.seller
 
   return (
     <main className="marketplace-shell transaction-shell">
-      <Link className="text-link" to="/transactions">← All transactions</Link>
       <section className="transaction-detail">
         <header className="transaction-detail-header">
           <div>
@@ -294,7 +444,7 @@ export function TransactionDetailPage() {
             </p>
           </div>
           <Badge variant={transaction.transaction_status === 'completed' ? 'success' : 'neutral'}>
-            {STATUS_LABELS[transaction.transaction_status] || transaction.transaction_status}
+            {displayStatus}
           </Badge>
         </header>
 
@@ -305,76 +455,140 @@ export function TransactionDetailPage() {
 
         {error && <p className="form-error" role="alert">{error}</p>}
 
-        {isPending && (
+        {hasCancellationRequest && (
+          <section className="transaction-notice" role="status">
+            {cancellationRequestedByMe ? (
+              <>
+                <strong>You requested cancellation.</strong>
+                <p>Waiting for {otherParticipant.first_name} to respond. The transaction remains active and the listing stays reserved.</p>
+              </>
+            ) : (
+              <>
+                <strong>{otherParticipant.first_name} requested cancellation.</strong>
+                <p>
+                  Reason: {transaction.cancellation_request_reason || 'No reason provided.'}
+                  {' '}Accepting releases the listing; declining keeps the transaction active.
+                </p>
+                <div className="transaction-form-actions">
+                  <Button
+                    disabled={busy}
+                    onClick={() => performAction('cancel-response', { decision: 'accept' })}
+                  >
+                    {busy ? 'Saving…' : 'Accept cancellation'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => performAction('cancel-response', { decision: 'decline' })}
+                  >
+                    Decline and continue
+                  </Button>
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {!hasCancellationRequest && isPending && (
           <section className="transaction-step">
             <h2>Arrange a meetup</h2>
-            <p>Choose a future time and a public campus meetup spot. Both participants must confirm the same details.</p>
+            <p>
+              {ownMeetupConfirmed
+                ? `Your confirmation is saved. Waiting for ${otherParticipant.first_name} to confirm these same details.`
+                : 'Choose a future time and a public campus meetup spot. Both participants must confirm the same details.'}
+            </p>
             {(transaction.meetup_date || transaction.meetup_time || transaction.meetup_location) && (
               <div className="transaction-confirmations">
                 <p>Buyer: {transaction.buyer_meetup_confirmed_at ? 'Confirmed' : 'Needs to confirm'}</p>
                 <p>Seller: {transaction.seller_meetup_confirmed_at ? 'Confirmed' : 'Needs to confirm'}</p>
+                {otherMeetupConfirmed && !ownMeetupConfirmed && (
+                  <p>{otherParticipant.first_name} confirmed these details. Your confirmation is needed next.</p>
+                )}
               </div>
             )}
-            <form
-              className="transaction-form"
-              onSubmit={(event) => {
-                event.preventDefault()
-                performAction('meetup', meetup)
-              }}
-            >
-              <div className="form-grid">
-                <FormField label="Meetup date">
-                  <TextInput
-                    type="date"
-                    name="meetup_date"
-                    min={localToday()}
-                    value={meetup.meetup_date}
-                    onChange={(event) => setMeetup({ ...meetup, meetup_date: event.target.value })}
-                    required
-                  />
-                </FormField>
-                <FormField label="Meetup time">
-                  <TextInput
-                    type="time"
-                    name="meetup_time"
-                    value={meetup.meetup_time}
-                    onChange={(event) => setMeetup({ ...meetup, meetup_time: event.target.value })}
-                    required
-                  />
-                </FormField>
-              </div>
-              <FormField label="Public meetup location">
-                <TextInput
-                  name="meetup_location"
-                  value={meetup.meetup_location}
-                  onChange={(event) => setMeetup({ ...meetup, meetup_location: event.target.value })}
-                  placeholder="For example, the WMSU main library entrance"
-                  maxLength="255"
-                  minLength="3"
-                  required
-                />
-              </FormField>
-              <Button type="submit" disabled={busy}>
-                {busy ? 'Saving…' : 'Propose or confirm meetup'}
-              </Button>
-            </form>
+            <MeetupForm
+              meetup={meetup}
+              setMeetup={setMeetup}
+              performAction={performAction}
+              busy={busy}
+              ownMeetupConfirmed={ownMeetupConfirmed}
+            />
           </section>
         )}
 
-        {isMeetupArranged && (
+        {!hasCancellationRequest && isMeetupArranged && (
           <section className="transaction-step">
-            <h2>Meetup arranged</h2>
+            <h2>{meetupTimeArrived ? 'Scheduled meetup time arrived' : 'Meetup arranged'}</h2>
+            <p>Meet at the agreed time and public location. If you did not meet, either participant can propose a new plan; both must confirm it before handoff confirmation is available.</p>
             <dl className="meetup-details">
               <div><dt>Date</dt><dd>{transaction.meetup_date}</dd></div>
               <div><dt>Time</dt><dd>{transaction.meetup_time}</dd></div>
               <div><dt>Location</dt><dd>{transaction.meetup_location}</dd></div>
             </dl>
+            {!anyCompletionConfirmed && !hasUnlockRequest && (
+              <>
+                {!rescheduleOpen ? (
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => setRescheduleOpen(true)}
+                  >
+                    Change meetup details
+                  </Button>
+                ) : (
+                  <>
+                    <p>Proposing a change reopens meetup confirmation. The other participant must confirm the new details before the transaction returns to Meetup arranged.</p>
+                    <MeetupForm
+                      meetup={meetup}
+                      setMeetup={setMeetup}
+                      performAction={performAction}
+                      busy={busy}
+                      ownMeetupConfirmed={ownMeetupConfirmed}
+                      rescheduling
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => {
+                        setRescheduleOpen(false)
+                        setMeetup({
+                          meetup_date: transaction.meetup_date || '',
+                          meetup_time: transaction.meetup_time || '',
+                          meetup_location: transaction.meetup_location || '',
+                        })
+                      }}
+                    >
+                      Keep current meetup
+                    </Button>
+                  </>
+                )}
+              </>
+            )}
+            {anyCompletionConfirmed && (
+              <p className="transaction-handoff-note" role="status">
+                A participant has already confirmed the handoff, so meetup details cannot be changed. Report a problem if the exchange did not happen as planned.
+              </p>
+            )}
             <div className="transaction-confirmations">
               <p>Buyer completion: {transaction.buyer_completion_confirmed_at ? 'Confirmed' : 'Waiting'}</p>
               <p>Seller completion: {transaction.seller_completion_confirmed_at ? 'Confirmed' : 'Waiting'}</p>
             </div>
-            <Button disabled={busy} onClick={() => performAction('complete')}>
-              {busy ? 'Saving…' : 'Confirm item handoff'}
+            <p>
+              {ownCompletionConfirmed
+                ? `You confirmed the handoff. Waiting for ${otherParticipant.first_name} to confirm.`
+                : 'After meeting and exchanging the item, confirm the handoff here. Both participants must confirm to complete the transaction.'}
+            </p>
+            {!meetupTimeArrived && !ownCompletionConfirmed && (
+              <p className="transaction-handoff-note" role="status">
+                Handoff confirmation becomes available at or after the scheduled meetup date and time.
+              </p>
+            )}
+            <Button
+              disabled={busy || ownCompletionConfirmed || hasUnlockRequest || !meetupTimeArrived}
+              onClick={() => performAction('complete')}
+            >
+              {busy ? 'Saving…' : ownCompletionConfirmed ? 'Handoff confirmed' : meetupTimeArrived ? 'Confirm item handoff' : 'Available at meetup time'}
             </Button>
 
             <div className="transaction-unlock">
@@ -520,6 +734,12 @@ export function TransactionDetailPage() {
                 <p className="transaction-review-note">The other participant has not submitted a review yet.</p>
               )}
             </section>
+            <section className="transaction-cancel">
+              <p>Remove this completed transaction from your history. It will remain in the other participant’s history.</p>
+              <Button variant="secondary" disabled={busy} onClick={hideCompletedTransaction}>
+                {busy ? 'Removing…' : 'Remove from my history'}
+              </Button>
+            </section>
           </>
         )}
         {transaction.transaction_status === 'cancelled' && (
@@ -531,10 +751,13 @@ export function TransactionDetailPage() {
         {canCancel && (
           <section className="transaction-cancel">
             {!cancelOpen ? (
-              <Button variant="secondary" onClick={() => setCancelOpen(true)}>
-                Cancel transaction
-              </Button>
-            ) : (
+              <>
+                <p>Cancellation needs approval from the other participant. The listing stays reserved until they respond.</p>
+                <Button variant="secondary" onClick={() => setCancelOpen(true)}>
+                  Request cancellation
+                </Button>
+              </>
+              ) : (
               <form
                 className="transaction-form"
                 onSubmit={(event) => {
@@ -553,7 +776,7 @@ export function TransactionDetailPage() {
                 </FormField>
                 <div className="transaction-form-actions">
                   <Button type="submit" variant="danger" disabled={busy || !cancellationReason.trim()}>
-                    {busy ? 'Cancelling…' : 'Confirm cancellation'}
+                    {busy ? 'Sending…' : 'Send cancellation request'}
                   </Button>
                   <Button type="button" variant="secondary" onClick={() => setCancelOpen(false)}>
                     Keep transaction

@@ -38,15 +38,15 @@ class AuthenticationAndVerificationTest extends TestCase
             ->assertJsonValidationErrors('email');
 
         $response = $this->postJson('/api/auth/register', array_merge(
-            $this->registrationData('Student@wmsu.edu.ph'),
+            $this->registrationData('ty202600123@wmsu.edu.ph'),
             ['password' => 'Pass2026', 'password_confirmation' => 'Pass2026'],
         ));
 
         $response->assertCreated()
-            ->assertJsonPath('user.email', 'student@wmsu.edu.ph')
+            ->assertJsonPath('user.email', 'ty202600123@wmsu.edu.ph')
             ->assertJsonPath('user.email_verified', false);
 
-        $user = User::query()->where('email', 'student@wmsu.edu.ph')->firstOrFail();
+        $user = User::query()->where('email', 'ty202600123@wmsu.edu.ph')->firstOrFail();
         Notification::assertSentTo($user, VerifyEmail::class);
 
         $signedUrl = URL::temporarySignedRoute('verification.verify', now()->addMinutes(10), [
@@ -64,6 +64,58 @@ class AuthenticationAndVerificationTest extends TestCase
         ]);
 
         $this->getJson($otherSignedUrl)->assertForbidden();
+    }
+
+    public function test_local_email_verification_shortcut_is_unavailable_outside_local_environment(): void
+    {
+        $user = User::factory()->create(['email_verified_at' => null]);
+
+        $this->actingAs($user)
+            ->postJson('/api/auth/email/verify-local')
+            ->assertNotFound();
+
+        $this->assertNull($user->fresh()->email_verified_at);
+
+        config(['app.env' => 'local']);
+
+        $this->postJson('/api/auth/email/verify-local')
+            ->assertOk()
+            ->assertJsonPath(
+                'message',
+                'Email marked verified for local testing only. This does not verify your real email address.',
+            );
+
+        $this->assertNotNull($user->fresh()->email_verified_at);
+    }
+
+    public function test_registration_matches_student_id_to_wmsu_email_and_normalizes_hyphenated_ids(): void
+    {
+        Notification::fake();
+
+        $this->postJson('/api/auth/register', array_merge(
+            $this->registrationData('ty202702829@wmsu.edu.ph'),
+            ['student_id_number' => '2027-02829'],
+        ))->assertCreated();
+
+        $this->assertDatabaseHas('users', [
+            'student_id_number' => '202702829',
+            'email' => 'ty202702829@wmsu.edu.ph',
+        ]);
+    }
+
+    public function test_registration_rejects_student_id_that_does_not_match_wmsu_email(): void
+    {
+        $this->postJson('/api/auth/register', array_merge(
+            $this->registrationData('ty202702820@wmsu.edu.ph'),
+            ['student_id_number' => '2027-02829'],
+        ))->assertUnprocessable()
+            ->assertJsonValidationErrors('student_id_number');
+
+        $this->postJson('/api/auth/register', array_merge(
+            $this->registrationData('ty202702829@wmsu.edu.ph'),
+            ['student_id_number' => '20-2702829'],
+        ))->assertUnprocessable()
+            ->assertJsonValidationErrors('student_id_number');
     }
 
     public function test_registration_password_must_be_at_least_eight_alphanumeric_characters(): void
@@ -274,7 +326,7 @@ class AuthenticationAndVerificationTest extends TestCase
     private function registrationData(string $email): array
     {
         return [
-            'student_id_number' => '2026000123',
+            'student_id_number' => '202600123',
             'first_name' => 'Campus',
             'last_name' => 'Student',
             'email' => $email,

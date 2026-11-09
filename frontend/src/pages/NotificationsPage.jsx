@@ -22,6 +22,12 @@ function formatDateTime(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
+function announceUnreadCount(unreadCount) {
+  window.dispatchEvent(new CustomEvent('campustrade:notifications-updated', {
+    detail: { unreadCount },
+  }))
+}
+
 export default function NotificationsPage() {
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState([])
@@ -41,6 +47,7 @@ export default function NotificationsPage() {
         if (!active) return
         setNotifications(data.notifications)
         setUnreadCount(data.unread_count)
+        announceUnreadCount(data.unread_count)
         setNextCursor(data.next_cursor)
         setError('')
       })
@@ -75,6 +82,7 @@ export default function NotificationsPage() {
       })
       setNextCursor(data.next_cursor)
       setUnreadCount(data.unread_count)
+      announceUnreadCount(data.unread_count)
     } catch (requestError) {
       if (requestError.response?.status === 401) {
         navigate('/login', { replace: true, state: { returnTo: '/notifications' } })
@@ -102,6 +110,7 @@ export default function NotificationsPage() {
         item.id === notification.id ? data.notification : item
       )))
       setUnreadCount(data.unread_count)
+      announceUnreadCount(data.unread_count)
       if (open && destination) navigate(destination)
     } catch (requestError) {
       if (requestError.response?.status === 401) {
@@ -125,6 +134,7 @@ export default function NotificationsPage() {
         notification.is_read ? notification : { ...notification, is_read: true, read_at: readAt }
       )))
       setUnreadCount(data.unread_count)
+      announceUnreadCount(data.unread_count)
     } catch (requestError) {
       if (requestError.response?.status === 401) {
         navigate('/login', { replace: true, state: { returnTo: '/notifications' } })
@@ -133,6 +143,28 @@ export default function NotificationsPage() {
       }
     } finally {
       setMarkingAll(false)
+    }
+  }
+
+  async function deleteNotification(notification) {
+    if (busyId !== null) return
+    if (!window.confirm('Delete this notification? This cannot be undone.')) return
+
+    setBusyId(notification.id)
+    setError('')
+    try {
+      const { data } = await api.delete(`/api/auth/notifications/${notification.id}`)
+      setNotifications((current) => current.filter((item) => item.id !== notification.id))
+      setUnreadCount(data.unread_count)
+      announceUnreadCount(data.unread_count)
+    } catch (requestError) {
+      if (requestError.response?.status === 401) {
+        navigate('/login', { replace: true, state: { returnTo: '/notifications' } })
+      } else {
+        setError(getErrorMessage(requestError))
+      }
+    } finally {
+      setBusyId(null)
     }
   }
 
@@ -188,10 +220,10 @@ export default function NotificationsPage() {
                   <time dateTime={notification.created_at}>{formatDateTime(notification.created_at)}</time>
                 </div>
                 <div className="notification-card-actions">
-                  {safeInternalPath(notification.action_url) && (
+                  {safeInternalRoute(notification.action_url, null) && (
                     <Button
                       variant="secondary"
-                      disabled={busyId === notification.id}
+                      disabled={busyId !== null}
                       onClick={() => markRead(notification, true)}
                     >
                       Open
@@ -200,12 +232,19 @@ export default function NotificationsPage() {
                   {!notification.is_read && (
                     <Button
                       variant="secondary"
-                      disabled={busyId === notification.id}
+                      disabled={busyId !== null}
                       onClick={() => markRead(notification)}
                     >
                       {busyId === notification.id ? 'Saving…' : 'Mark read'}
                     </Button>
                   )}
+                  <Button
+                    variant="danger"
+                    disabled={busyId !== null}
+                    onClick={() => deleteNotification(notification)}
+                  >
+                    {busyId === notification.id ? 'Deleting…' : 'Delete'}
+                  </Button>
                 </div>
               </article>
             ))}

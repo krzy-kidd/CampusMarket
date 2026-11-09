@@ -196,6 +196,7 @@ export function MessageThreadPage() {
         setMessages(data.messages)
         setNextCursor(data.next_cursor)
         setError('')
+        window.dispatchEvent(new CustomEvent('campustrade:messages-updated'))
       })
       .catch((requestError) => {
         if (!active) return
@@ -270,6 +271,7 @@ export function MessageThreadPage() {
     setError('')
     try {
       const { data } = await api.post(`/api/auth/conversations/${conversationId}/transactions`)
+      window.dispatchEvent(new CustomEvent('campustrade:transactions-updated'))
       navigate(`/transactions/${data.transaction.id}`)
     } catch (requestError) {
       if (requestError.response?.status === 401) {
@@ -310,7 +312,6 @@ export function MessageThreadPage() {
 
   return (
     <main className="marketplace-shell messages-shell">
-      <Link className="text-link" to="/messages">← All messages</Link>
       <section className="message-thread">
         <header className="message-thread-header">
           <div>
@@ -333,7 +334,7 @@ export function MessageThreadPage() {
             Refresh
           </Button>
         </header>
-        {conversation.transaction ? (
+        {conversation.transaction && conversation.transaction.transaction_status !== 'cancelled' ? (
           <div className="conversation-transaction-banner">
             <p>
               Purchase request · {formatPrice(conversation.transaction.agreed_price)} ·{' '}
@@ -343,11 +344,30 @@ export function MessageThreadPage() {
               View transaction
             </Button>
           </div>
+        ) : conversation.transaction?.transaction_status === 'cancelled'
+          && conversation.current_user_role === 'buyer'
+          && conversation.listing.listing_status === 'available' ? (
+          <div className="conversation-transaction-banner">
+            <p>Your previous request was cancelled. This listing is available again at {formatPrice(conversation.listing.price)}.</p>
+            <Button to={`/transactions/${conversation.transaction.id}`} variant="secondary">
+              View cancelled request
+            </Button>
+            <Button disabled={requestingPurchase} onClick={requestPurchase}>
+              {requestingPurchase ? 'Creating request…' : 'Start a new purchase request'}
+            </Button>
+          </div>
         ) : conversation.current_user_role === 'buyer' && conversation.listing.listing_status === 'available' ? (
           <div className="conversation-transaction-banner">
             <p>Request to purchase at the listed price of {formatPrice(conversation.listing.price)}.</p>
             <Button disabled={requestingPurchase} onClick={requestPurchase}>
               {requestingPurchase ? 'Creating request…' : 'Request purchase'}
+            </Button>
+          </div>
+        ) : conversation.transaction?.transaction_status === 'cancelled' ? (
+          <div className="conversation-transaction-banner">
+            <p>Previous purchase request · Cancelled</p>
+            <Button to={`/transactions/${conversation.transaction.id}`} variant="secondary">
+              View cancelled request
             </Button>
           </div>
         ) : (

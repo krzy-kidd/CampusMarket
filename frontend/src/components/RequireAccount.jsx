@@ -3,7 +3,12 @@ import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { Button } from './ui.jsx'
 import api from '../lib/api.js'
 
-export default function RequireAccount({ adminOnly = false }) {
+export default function RequireAccount({
+  adminOnly = false,
+  studentOnly = false,
+  allowGuest = false,
+  redirectAuthenticated = false,
+}) {
   const location = useLocation()
   const [access, setAccess] = useState({ status: 'checking' })
   const [retryKey, setRetryKey] = useState(0)
@@ -18,8 +23,10 @@ export default function RequireAccount({ adminOnly = false }) {
           setAccess({ status: 'inactive', user })
         } else if (adminOnly && !user.admin_role) {
           setAccess({ status: 'forbidden' })
+        } else if (studentOnly && user.admin_role) {
+          setAccess({ status: 'admin_disallowed' })
         } else {
-          setAccess({ status: 'allowed' })
+          setAccess({ status: 'allowed', user })
         }
       })
       .catch((error) => {
@@ -33,13 +40,15 @@ export default function RequireAccount({ adminOnly = false }) {
       })
 
     return () => { active = false }
-  }, [adminOnly, location.pathname, retryKey])
+  }, [adminOnly, location.pathname, retryKey, studentOnly])
 
   if (access.status === 'checking') {
     return <main className="page-shell"><section className="status-card"><p role="status">Checking account access…</p></section></main>
   }
 
   if (access.status === 'guest') {
+    if (allowGuest) return <Outlet />
+
     return (
       <Navigate
         to="/login"
@@ -47,6 +56,10 @@ export default function RequireAccount({ adminOnly = false }) {
         state={{ returnTo: `${location.pathname}${location.search}${location.hash}` }}
       />
     )
+  }
+
+  if (access.status === 'allowed' && redirectAuthenticated) {
+    return <Navigate to={access.user.admin_role ? '/admin' : '/marketplace'} replace />
   }
 
   if (access.status === 'inactive') {
@@ -65,6 +78,7 @@ export default function RequireAccount({ adminOnly = false }) {
   }
 
   if (access.status === 'forbidden') return <Navigate to="/account" replace />
+  if (access.status === 'admin_disallowed') return <Navigate to="/admin" replace />
 
   if (access.status === 'unavailable') {
     return (

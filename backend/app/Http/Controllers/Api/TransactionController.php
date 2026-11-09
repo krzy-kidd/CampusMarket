@@ -30,12 +30,24 @@ class TransactionController extends Controller
             ->where(fn (Builder $query) => $query
                 ->where('buyer_id', $user->id)
                 ->orWhere('seller_id', $user->id))
+            ->whereNotExists(fn ($query) => $query
+                ->selectRaw('1')
+                ->from('transaction_history_hides')
+                ->whereColumn('transaction_history_hides.transaction_id', 'transactions.id')
+                ->where('transaction_history_hides.user_id', $user->id))
             ->with(['listing', 'buyer:id,first_name,last_name', 'seller:id,first_name,last_name'])
             ->orderByDesc('updated_at')
             ->orderByDesc('id')
             ->cursorPaginate(20, ['*'], 'cursor', $validated['cursor'] ?? null);
+        $activeCount = Transaction::query()
+            ->where(fn (Builder $query) => $query
+                ->where('buyer_id', $user->id)
+                ->orWhere('seller_id', $user->id))
+            ->whereIn('transaction_status', Transaction::ACTIVE_STATUSES)
+            ->count();
 
         return response()->json([
+            'active_count' => $activeCount,
             'transactions' => $transactions->getCollection()
                 ->map(fn (Transaction $transaction): array => $this->present($transaction, $user->id)),
             'next_cursor' => $transactions->nextCursor()?->encode(),
@@ -49,6 +61,10 @@ class TransactionController extends Controller
         abort_unless($conversation->buyer_id === $user->id, 403, 'Only the buyer can request this purchase.');
 
         [$transaction, $created] = DB::transaction(function () use ($conversation, $user): array {
+            $listing = Listing::query()
+                ->whereKey($conversation->listing_id)
+                ->lockForUpdate()
+                ->firstOrFail();
             $lockedConversation = Conversation::query()
                 ->whereKey($conversation->id)
                 ->lockForUpdate()
@@ -62,10 +78,6 @@ class TransactionController extends Controller
                 ]), false];
             }
 
-            $listing = Listing::query()
-                ->whereKey($lockedConversation->listing_id)
-                ->lockForUpdate()
-                ->firstOrFail();
             abort_unless($listing->listing_status === 'available', 409, 'This listing is not available for a purchase request.');
             abort_if($listing->seller_id !== $lockedConversation->seller_id, 409, 'The listing seller has changed.');
 
@@ -83,6 +95,62 @@ class TransactionController extends Controller
                 'message_text' => 'Purchase request started for PHP '.number_format((float) $listing->price, 2, '.', '').'. Please confirm meetup details in the transaction.',
                 'sent_at' => now(),
             ]);
+            $lockedConversation->touch();
+            $this->recordEvent($transaction, $user, 'purchase_requested', 'The buyer requested to purchase this listing at the listed price.');
+
+            return [$transaction->load([
+                'listing',
+                'buyer:id,first_name,last_name',
+                'seller:id,first_name,last_name',
+            ]), true];
+        });
+
+        return response()->json([
+            'transaction' => $this->present($transaction, $user->id),
+        ], $created ? 201 : 200);
+    }
+
+    public function purchaseListing(Request $request, Listing $listing): JsonResponse
+    {
+        $user = $request->user();
+        $this->ensureActiveAccount($user);
+        abort_unless($listing->seller_id !== $user->id, 403, 'You cannot purchase your own listing.');
+
+        [$transaction, $created] = DB::transaction(function () use ($listing, $user): array {
+            $listing = Listing::query()->whereKey($listing->id)->lockForUpdate()->firstOrFail();
+            abort_unless($listing->seller_id !== $user->id, 403, 'You cannot purchase your own listing.');
+
+            $conversation = Conversation::query()->firstOrCreate([
+                'listing_id' => $listing->id,
+                'buyer_id' => $user->id,
+                'seller_id' => $listing->seller_id,
+            ]);
+            $conversation = Conversation::query()->whereKey($conversation->id)->lockForUpdate()->firstOrFail();
+            $existingTransaction = $conversation->transaction;
+            if ($existingTransaction && $existingTransaction->transaction_status !== 'cancelled') {
+                return [$existingTransaction->load([
+                    'listing',
+                    'buyer:id,first_name,last_name',
+                    'seller:id,first_name,last_name',
+                ]), false];
+            }
+
+            abort_unless($listing->listing_status === 'available', 409, 'This listing is no longer available.');
+            $transaction = Transaction::query()->create([
+                'listing_id' => $listing->id,
+                'buyer_id' => $user->id,
+                'seller_id' => $listing->seller_id,
+                'agreed_price' => $listing->price,
+                'transaction_status' => 'pending_agreement',
+            ]);
+            $listing->update(['listing_status' => 'pending_agreement']);
+            $conversation->update(['transaction_id' => $transaction->id]);
+            $conversation->messages()->create([
+                'sender_id' => $user->id,
+                'message_text' => 'Purchase request started for PHP '.number_format((float) $listing->price, 2, '.', '').'. Please confirm meetup details in the transaction.',
+                'sent_at' => now(),
+            ]);
+            $conversation->touch();
             $this->recordEvent($transaction, $user, 'purchase_requested', 'The buyer requested to purchase this listing at the listed price.');
 
             return [$transaction->load([
@@ -113,6 +181,23 @@ class TransactionController extends Controller
         ]);
 
         return response()->json(['transaction' => $this->present($transaction, $user->id)]);
+    }
+
+    public function hideFromHistory(Request $request, Transaction $transaction): JsonResponse
+    {
+        $user = $request->user();
+        $this->ensureActiveAccount($user);
+        $this->ensureParticipant($transaction, $user);
+        abort_unless($transaction->transaction_status === 'completed', 409, 'Only completed transactions can be removed from your history.');
+
+        DB::table('transaction_history_hides')->insertOrIgnore([
+            'user_id' => $user->id,
+            'transaction_id' => $transaction->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return response()->json(['hidden' => true]);
     }
 
     public function submitReview(Request $request, Transaction $transaction): JsonResponse
@@ -189,6 +274,7 @@ class TransactionController extends Controller
             abort_unless($transaction->seller_id === $user->id, 403, 'Only the seller can request to release this listing.');
             abort_unless($transaction->transaction_status === 'meetup_arranged', 409, 'A listing can only be released after a meetup is arranged.');
             abort_if($transaction->seller_unlock_requested_at !== null, 409, 'An unlock request is already active for this transaction.');
+            abort_if($transaction->cancellation_requested_at !== null, 409, 'A cancellation request is awaiting a response.');
 
             $responseHours = (int) PlatformSetting::query()
                 ->where('setting_key', 'seller_unlock_response_hours')
@@ -242,6 +328,7 @@ class TransactionController extends Controller
                 ->firstOrFail();
             abort_unless($transaction->buyer_id === $user->id, 403, 'Only the buyer can respond to a seller unlock request.');
             abort_unless($transaction->transaction_status === 'meetup_arranged', 409, 'This transaction is no longer awaiting an unlock response.');
+            abort_if($transaction->cancellation_requested_at !== null, 409, 'A cancellation request is awaiting a response.');
             abort_unless(
                 $transaction->seller_unlock_requested_at !== null && $transaction->buyer_unlock_response_deadline !== null,
                 409,
@@ -310,6 +397,7 @@ class TransactionController extends Controller
                 ->firstOrFail();
             abort_unless($transaction->buyer_id === $user->id || $transaction->seller_id === $user->id, 404, 'This transaction was not found.');
             abort_unless($transaction->transaction_status === 'meetup_arranged', 409, 'Only a meetup-arranged transaction can be disputed.');
+            abort_if($transaction->cancellation_requested_at !== null, 409, 'A cancellation request is awaiting a response.');
 
             $otherParticipantId = $user->id === $transaction->buyer_id
                 ? $transaction->seller_id
@@ -350,7 +438,17 @@ class TransactionController extends Controller
         $user = $request->user();
         $this->ensureActiveAccount($user);
         $this->ensureParticipant($transaction, $user);
-        abort_unless($transaction->transaction_status === 'pending_agreement', 409, 'Meetup details can only be updated while the purchase request is pending.');
+        abort_unless(
+            in_array($transaction->transaction_status, ['pending_agreement', 'meetup_arranged'], true),
+            409,
+            'Meetup details can only be updated while the purchase request is active.',
+        );
+        abort_if($transaction->cancellation_requested_at !== null, 409, 'A cancellation request is awaiting a response.');
+        abort_if(
+            $transaction->seller_unlock_requested_at !== null,
+            409,
+            'The transaction is awaiting the buyer’s response to a release request.',
+        );
 
         $validated = $request->validate([
             'meetup_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
@@ -358,9 +456,9 @@ class TransactionController extends Controller
             'meetup_location' => ['required', 'string', 'min:3', 'max:255'],
         ]);
         $meetupAt = Carbon::createFromFormat(
-            'Y-m-d H:i',
+            '!Y-m-d H:i',
             $validated['meetup_date'].' '.$validated['meetup_time'],
-            config('app.timezone'),
+            config('campus.meetup_timezone'),
         );
         if ($meetupAt->lessThanOrEqualTo(now())) {
             throw ValidationException::withMessages([
@@ -373,11 +471,35 @@ class TransactionController extends Controller
                 ->whereKey($transaction->id)
                 ->lockForUpdate()
                 ->firstOrFail();
-            abort_unless($transaction->transaction_status === 'pending_agreement', 409, 'Meetup details can only be updated while the purchase request is pending.');
+            abort_unless(
+                in_array($transaction->transaction_status, ['pending_agreement', 'meetup_arranged'], true),
+                409,
+                'Meetup details can only be updated while the purchase request is active.',
+            );
+            abort_if($transaction->cancellation_requested_at !== null, 409, 'A cancellation request is awaiting a response.');
+            abort_if(
+                $transaction->seller_unlock_requested_at !== null,
+                409,
+                'The transaction is awaiting the buyer’s response to a release request.',
+            );
+            $isReschedule = $transaction->transaction_status === 'meetup_arranged';
+            abort_if(
+                $isReschedule && (
+                    $transaction->buyer_completion_confirmed_at !== null
+                    || $transaction->seller_completion_confirmed_at !== null
+                ),
+                409,
+                'A handoff has already been confirmed. Report a problem instead of rescheduling.',
+            );
 
             $detailsChanged = $transaction->meetup_date?->toDateString() !== $validated['meetup_date']
                 || $transaction->meetup_time?->format('H:i') !== $validated['meetup_time']
                 || $transaction->meetup_location !== trim($validated['meetup_location']);
+            abort_if(
+                $isReschedule && ! $detailsChanged,
+                409,
+                'Change at least one meetup detail to request a reschedule.',
+            );
 
             $changes = [
                 'meetup_date' => $validated['meetup_date'],
@@ -410,7 +532,17 @@ class TransactionController extends Controller
                 $transaction->listing()->update(['listing_status' => 'locked']);
                 $this->recordEvent($transaction, $user, 'meetup_arranged', 'Both participants confirmed the meetup details.');
             } else {
-                $this->recordEvent($transaction, $user, 'meetup_proposed', 'A participant proposed or confirmed meetup details.');
+                if ($isReschedule) {
+                    $transaction->listing()->update(['listing_status' => 'pending_agreement']);
+                }
+                $this->recordEvent(
+                    $transaction,
+                    $user,
+                    $isReschedule ? 'meetup_reschedule_requested' : 'meetup_proposed',
+                    $isReschedule
+                        ? 'A participant proposed new meetup details. Both participants must confirm the new plan.'
+                        : 'A participant proposed or confirmed meetup details.',
+                );
             }
 
             return $transaction->fresh([
@@ -437,6 +569,15 @@ class TransactionController extends Controller
                 ->lockForUpdate()
                 ->firstOrFail();
             abort_unless($transaction->transaction_status === 'meetup_arranged', 409, 'The meetup must be arranged before confirming completion.');
+            abort_if($transaction->cancellation_requested_at !== null, 409, 'A cancellation request is awaiting a response.');
+            abort_if(
+                $transaction->seller_unlock_requested_at !== null,
+                409,
+                'The transaction is awaiting the buyer’s response to a release request.',
+            );
+            $meetupAt = $this->scheduledMeetupAt($transaction);
+            abort_unless($meetupAt, 409, 'A scheduled meetup time is required before confirming handoff.');
+            abort_if($meetupAt->isFuture(), 409, 'Handoff confirmation is available at or after the scheduled meetup time.');
 
             $changes = $user->id === $transaction->buyer_id
                 ? ['buyer_completion_confirmed_at' => now()]
@@ -497,20 +638,78 @@ class TransactionController extends Controller
             abort_unless(
                 in_array($transaction->transaction_status, ['pending_agreement', 'meetup_arranged'], true),
                 409,
-                'Only a pending or meetup-arranged transaction can be cancelled.',
+                'Only a pending or meetup-arranged transaction can request cancellation.',
             );
             abort_if(
                 $transaction->transaction_status === 'meetup_arranged' && $transaction->seller_id === $user->id,
                 409,
                 'Sellers must request to release an arranged meetup and allow the buyer to respond.',
             );
+            abort_if($transaction->seller_unlock_requested_at !== null, 409, 'The transaction is already awaiting a release response.');
+            abort_if($transaction->cancellation_requested_at !== null, 409, 'A cancellation request is already awaiting a response.');
 
             $transaction->update([
-                'transaction_status' => 'cancelled',
-                'cancellation_reason' => $validated['cancellation_reason'],
+                'cancellation_requested_by' => $user->id,
+                'cancellation_requested_at' => now(),
+                'cancellation_request_reason' => $validated['cancellation_reason'],
             ]);
-            $transaction->listing()->update(['listing_status' => 'available']);
-            $this->recordEvent($transaction, $user, 'transaction_cancelled', $validated['cancellation_reason']);
+            $this->recordEvent($transaction, $user, 'cancellation_requested', 'A participant requested cancellation: '.$validated['cancellation_reason']);
+
+            return $transaction->fresh([
+                'listing',
+                'buyer:id,first_name,last_name',
+                'seller:id,first_name,last_name',
+                'events.actor:id,first_name,last_name',
+                'reports',
+            ]);
+        });
+
+        return response()->json(['transaction' => $this->present($transaction, $user->id)]);
+    }
+
+    public function respondToCancellation(Request $request, Transaction $transaction): JsonResponse
+    {
+        $user = $request->user();
+        $this->ensureActiveAccount($user);
+        $this->ensureParticipant($transaction, $user);
+        $validated = $request->validate(['decision' => ['required', 'in:accept,decline']]);
+
+        $transaction = DB::transaction(function () use ($transaction, $user, $validated): Transaction {
+            $transaction = Transaction::query()
+                ->whereKey($transaction->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            abort_unless(
+                in_array($transaction->transaction_status, ['pending_agreement', 'meetup_arranged'], true),
+                409,
+                'This transaction is no longer awaiting cancellation confirmation.',
+            );
+            abort_unless(
+                $transaction->cancellation_requested_at !== null && $transaction->cancellation_requested_by !== null,
+                409,
+                'There is no active cancellation request.',
+            );
+            abort_unless($transaction->cancellation_requested_by !== $user->id, 409, 'You cannot respond to your own cancellation request.');
+
+            if ($validated['decision'] === 'accept') {
+                $reason = $transaction->cancellation_request_reason;
+                $transaction->update([
+                    'transaction_status' => 'cancelled',
+                    'cancellation_reason' => $reason,
+                    'cancellation_requested_by' => null,
+                    'cancellation_requested_at' => null,
+                    'cancellation_request_reason' => null,
+                ]);
+                $transaction->listing()->update(['listing_status' => 'available']);
+                $this->recordEvent($transaction, $user, 'transaction_cancelled', 'Both participants agreed to cancel: '.$reason);
+            } else {
+                $transaction->update([
+                    'cancellation_requested_by' => null,
+                    'cancellation_requested_at' => null,
+                    'cancellation_request_reason' => null,
+                ]);
+                $this->recordEvent($transaction, $user, 'cancellation_declined', 'A participant declined the cancellation request. The transaction remains active.');
+            }
 
             return $transaction->fresh([
                 'listing',
@@ -540,6 +739,7 @@ class TransactionController extends Controller
             'agreed_price' => $transaction->agreed_price,
             'meetup_date' => $transaction->meetup_date?->toDateString(),
             'meetup_time' => $transaction->meetup_time?->format('H:i'),
+            'meetup_at' => $this->scheduledMeetupAt($transaction)?->toIso8601String(),
             'meetup_location' => $transaction->meetup_location,
             'buyer_meetup_confirmed_at' => $transaction->buyer_meetup_confirmed_at,
             'seller_meetup_confirmed_at' => $transaction->seller_meetup_confirmed_at,
@@ -548,6 +748,9 @@ class TransactionController extends Controller
             'seller_unlock_requested_at' => $transaction->seller_unlock_requested_at,
             'buyer_unlock_response_deadline' => $transaction->buyer_unlock_response_deadline,
             'cancellation_reason' => $transaction->cancellation_reason,
+            'cancellation_requested_by' => $transaction->cancellation_requested_by,
+            'cancellation_requested_at' => $transaction->cancellation_requested_at,
+            'cancellation_request_reason' => $transaction->cancellation_request_reason,
             'completed_at' => $transaction->completed_at,
             'dispute' => $transaction->relationLoaded('reports')
                 ? $transaction->reports
@@ -576,6 +779,19 @@ class TransactionController extends Controller
                 ])->values()
                 : [],
         ];
+    }
+
+    private function scheduledMeetupAt(Transaction $transaction): ?Carbon
+    {
+        if (! $transaction->meetup_date || ! $transaction->meetup_time) {
+            return null;
+        }
+
+        return Carbon::createFromFormat(
+            '!Y-m-d H:i',
+            $transaction->meetup_date->toDateString().' '.$transaction->meetup_time->format('H:i'),
+            config('campus.meetup_timezone'),
+        );
     }
 
     private function userPayload(User $user): array

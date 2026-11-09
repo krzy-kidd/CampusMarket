@@ -92,6 +92,67 @@ class ListingManagementTest extends TestCase
             ->assertJsonValidationErrors('category_id');
     }
 
+    public function test_listing_title_and_description_limits_are_enforced_on_create_and_update(): void
+    {
+        $seller = $this->createVerifiedStudent();
+        $category = $this->createCategory();
+        $payload = [
+            ...$this->listingDetails($category),
+            'images' => [$this->fakeImage()],
+        ];
+
+        $this->actingAs($seller)->postJson('/api/auth/listings', [
+            ...$payload,
+            'title' => str_repeat('T', 121),
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('title');
+
+        $this->actingAs($seller)->postJson('/api/auth/listings', [
+            ...$payload,
+            'description' => str_repeat('D', 801),
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('description');
+
+        $listing = $this->actingAs($seller)->postJson('/api/auth/listings', $payload)
+            ->assertCreated()
+            ->json('listing');
+
+        $this->actingAs($seller)->patchJson('/api/auth/listings/'.$listing['id'], [
+            'title' => str_repeat('T', 121),
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('title');
+
+        $this->actingAs($seller)->patchJson('/api/auth/listings/'.$listing['id'], [
+            'description' => str_repeat('D', 801),
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('description');
+    }
+
+    public function test_listing_can_have_up_to_twelve_images_but_not_more(): void
+    {
+        $seller = $this->createVerifiedStudent();
+        $category = $this->createCategory();
+        $images = array_fill(0, 12, null);
+        foreach ($images as $index => $_) {
+            $images[$index] = $this->fakeImage();
+        }
+
+        $this->actingAs($seller)->postJson('/api/auth/listings', [
+            ...$this->listingDetails($category),
+            'images' => $images,
+        ])->assertCreated()
+            ->assertJsonCount(12, 'listing.images');
+
+        $tooManyImages = $images;
+        $tooManyImages[] = $this->fakeImage();
+        $this->actingAs($seller)->postJson('/api/auth/listings', [
+            ...$this->listingDetails($category),
+            'title' => 'Another textbook',
+            'images' => $tooManyImages,
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('images');
+    }
+
     public function test_students_can_only_manage_their_own_listings(): void
     {
         $seller = $this->createVerifiedStudent();

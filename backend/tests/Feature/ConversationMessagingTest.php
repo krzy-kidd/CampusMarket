@@ -42,6 +42,7 @@ class ConversationMessagingTest extends TestCase
 
         $this->actingAs($seller)->getJson('/api/auth/conversations')
             ->assertOk()
+            ->assertJsonPath('unread_count', 1)
             ->assertJsonPath('conversations.0.participant.id', $buyer->id)
             ->assertJsonPath('conversations.0.last_message.message_text', 'Is this textbook still available?')
             ->assertJsonPath('conversations.0.unread_count', 1);
@@ -189,15 +190,23 @@ class ConversationMessagingTest extends TestCase
                 'updated_at' => now()->addSeconds($index),
             ])->save();
         }
+        Message::query()->create([
+            'conversation_id' => Conversation::query()->orderBy('updated_at')->value('id'),
+            'sender_id' => $seller->id,
+            'message_text' => 'Unread message on an older conversation',
+            'sent_at' => now(),
+        ]);
 
         $page = $this->actingAs($buyer)->getJson('/api/auth/conversations')
             ->assertOk()
-            ->assertJsonCount(30, 'conversations');
+            ->assertJsonCount(30, 'conversations')
+            ->assertJsonPath('unread_count', 1);
 
         $cursor = $page->json('next_cursor');
         $this->getJson('/api/auth/conversations?cursor='.urlencode($cursor))
             ->assertOk()
-            ->assertJsonCount(1, 'conversations');
+            ->assertJsonCount(1, 'conversations')
+            ->assertJsonPath('unread_count', 1);
     }
 
     private function createListing(User $seller): Listing

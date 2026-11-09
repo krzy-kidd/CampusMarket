@@ -7,21 +7,29 @@ use App\Models\AcademicYear;
 use App\Models\Admin;
 use App\Models\AuditLog;
 use App\Models\Category;
+use App\Models\Conversation;
 use App\Models\Listing;
+use App\Models\ListingImage;
+use App\Models\Message;
 use App\Models\Notification;
 use App\Models\PlatformSetting;
 use App\Models\Report;
+use App\Models\Review;
 use App\Models\Transaction;
 use App\Models\TransactionEvent;
 use App\Models\User;
 use App\Models\Verification;
+use App\Models\VerificationAttempt;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use RuntimeException;
+use Throwable;
 
 class AdminDashboardController extends Controller
 {
@@ -41,10 +49,60 @@ class AdminDashboardController extends Controller
                 'pending_reports' => Report::query()->whereIn('report_status', ['pending', 'in_review'])->count(),
                 'categories' => Category::query()->count(),
                 'active_admins' => Admin::query()->where('account_status', 'active')->count(),
+                'monthly_analytics' => $this->monthlyAnalytics(),
+            ];
+        } else {
+            $reviewedAttempts = VerificationAttempt::query()
+                ->where('reviewed_by', $request->user()->id)
+                ->whereNotNull('reviewed_at');
+            $data += [
+                'reviews_by_admin' => (clone $reviewedAttempts)->count(),
+                'approvals_by_admin' => (clone $reviewedAttempts)->where('submission_status', 'approved')->count(),
+                'rejections_by_admin' => (clone $reviewedAttempts)->where('submission_status', 'rejected')->count(),
             ];
         }
 
         return response()->json($data);
+    }
+
+    private function monthlyAnalytics(): array
+    {
+        $monthExpression = match (DB::connection()->getDriverName()) {
+            'mysql', 'mariadb' => "DATE_FORMAT(created_at, '%Y-%m')",
+            'sqlite' => "strftime('%Y-%m', created_at)",
+            'pgsql' => "to_char(created_at, 'YYYY-MM')",
+            default => throw new \RuntimeException('Monthly analytics are not supported by this database driver.'),
+        };
+        $start = now()->startOfMonth()->subMonths(5);
+        $end = now()->startOfMonth()->addMonth();
+        $studentCounts = DB::table('users')
+            ->selectRaw("$monthExpression as month, COUNT(*) as total")
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')
+                ->from('admins')
+                ->whereColumn('admins.user_id', 'users.id'))
+            ->where('created_at', '>=', $start)
+            ->where('created_at', '<', $end)
+            ->groupBy('month')
+            ->pluck('total', 'month');
+        $listingCounts = DB::table('listings')
+            ->selectRaw("$monthExpression as month, COUNT(*) as total")
+            ->where('created_at', '>=', $start)
+            ->where('created_at', '<', $end)
+            ->groupBy('month')
+            ->pluck('total', 'month');
+
+        return collect(range(0, 5))
+            ->map(function (int $offset) use ($start, $studentCounts, $listingCounts): array {
+                $month = $start->copy()->addMonths($offset);
+                $key = $month->format('Y-m');
+
+                return [
+                    'month' => $month->format('M Y'),
+                    'students' => (int) ($studentCounts[$key] ?? 0),
+                    'listings' => (int) ($listingCounts[$key] ?? 0),
+                ];
+            })
+            ->all();
     }
 
     public function academicYears(): JsonResponse
@@ -136,7 +194,11 @@ class AdminDashboardController extends Controller
     public function storeCategory(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'parent_category_id' => ['nullable', 'integer', 'exists:categories,id'],
+            'parent_category_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('categories', 'id')->whereNull('parent_category_id'),
+            ],
             'category_name' => ['required', 'string', 'max:150'],
             'description' => ['nullable', 'string', 'max:5000'],
         ]);
@@ -162,10 +224,22 @@ class AdminDashboardController extends Controller
     public function updateCategory(Request $request, Category $category): JsonResponse
     {
         $validated = $request->validate([
-            'parent_category_id' => ['sometimes', 'nullable', 'integer', Rule::exists('categories', 'id')->whereNot('id', $category->id)],
+            'parent_category_id' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                Rule::exists('categories', 'id')
+                    ->whereNull('parent_category_id')
+                    ->whereNot('id', $category->id),
+            ],
             'category_name' => ['sometimes', 'required', 'string', 'max:150'],
             'description' => ['sometimes', 'nullable', 'string', 'max:5000'],
         ]);
+        abort_if(
+            isset($validated['parent_category_id']) && $category->children()->exists(),
+            422,
+            'A category with subcategories must remain at the top level.',
+        );
         abort_if(isset($validated['parent_category_id']) && $this->isDescendant($category, (int) $validated['parent_category_id']), 422, 'A category cannot be moved under one of its descendants.');
         $categoryName = $validated['category_name'] ?? $category->category_name;
         $parentId = array_key_exists('parent_category_id', $validated)
@@ -229,6 +303,135 @@ class AdminDashboardController extends Controller
 
         return response()->json([
             'student' => $user->only(['id', 'student_id_number', 'first_name', 'last_name', 'email', 'account_status']),
+        ]);
+    }
+
+    public function destroyStudent(Request $request, User $user): JsonResponse
+    {
+        abort_if($user->admin()->exists(), 409, 'Admin accounts cannot be deleted through student management.');
+        abort_unless($user->account_status === 'deactivated', 409, 'Only deactivated student accounts can be deleted.');
+
+        $paths = DB::transaction(function () use ($request, $user): array {
+            $user = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            abort_if($user->admin()->exists(), 409, 'Admin accounts cannot be deleted through student management.');
+            abort_unless($user->account_status === 'deactivated', 409, 'Only deactivated student accounts can be deleted.');
+
+            $listingIds = Listing::query()->where('seller_id', $user->id)->pluck('id');
+            $transactionIds = Transaction::query()
+                ->where(fn (Builder $query) => $query
+                    ->where('buyer_id', $user->id)
+                    ->orWhere('seller_id', $user->id))
+                ->pluck('id');
+            $reopenListingIds = Transaction::query()
+                ->whereIn('id', $transactionIds)
+                ->whereIn('transaction_status', Transaction::ACTIVE_STATUSES)
+                ->where('seller_id', '<>', $user->id)
+                ->pluck('listing_id');
+            $conversationIds = Conversation::query()
+                ->where(fn (Builder $query) => $query
+                    ->where('buyer_id', $user->id)
+                    ->orWhere('seller_id', $user->id))
+                ->orWhereHas('messages', fn (Builder $query) => $query->where('sender_id', $user->id))
+                ->pluck('id');
+            $verificationIds = Verification::query()->where('user_id', $user->id)->pluck('id');
+            $attemptIds = VerificationAttempt::query()
+                ->where('user_id', $user->id)
+                ->orWhereIn('verification_id', $verificationIds)
+                ->pluck('id');
+
+            $paths = [
+                'images' => array_values(array_unique(
+                    ListingImage::query()->whereIn('listing_id', $listingIds)->pluck('image_url')->all(),
+                )),
+                'cor' => array_values(array_unique(array_filter(array_merge(
+                    Verification::query()->whereIn('id', $verificationIds)->pluck('cor_file_path')->all(),
+                    VerificationAttempt::query()->whereIn('id', $attemptIds)->pluck('cor_file_path')->all(),
+                )))),
+            ];
+
+            Report::query()
+                ->where(fn (Builder $query) => $query
+                    ->where('reporter_id', $user->id)
+                    ->orWhere('reported_user_id', $user->id)
+                    ->orWhereIn('listing_id', $listingIds)
+                    ->orWhereIn('transaction_id', $transactionIds))
+                ->delete();
+            Review::query()
+                ->where(fn (Builder $query) => $query
+                    ->where('reviewer_id', $user->id)
+                    ->orWhere('reviewed_user_id', $user->id)
+                    ->orWhereIn('transaction_id', $transactionIds))
+                ->delete();
+            TransactionEvent::query()
+                ->where(fn (Builder $query) => $query
+                    ->where('actor_id', $user->id)
+                    ->orWhereIn('transaction_id', $transactionIds))
+                ->delete();
+            Message::query()
+                ->where('sender_id', $user->id)
+                ->orWhereIn('conversation_id', $conversationIds)
+                ->delete();
+            Conversation::query()
+                ->whereIn('id', $conversationIds)
+                ->orWhereIn('transaction_id', $transactionIds)
+                ->delete();
+            Listing::query()->whereIn('id', $reopenListingIds)
+                ->update(['listing_status' => 'available']);
+            Transaction::query()->whereIn('id', $transactionIds)->delete();
+            Listing::query()->whereIn('id', $listingIds)->delete();
+            Notification::query()->where('user_id', $user->id)->delete();
+
+            Verification::query()
+                ->where('reviewed_by', $user->id)
+                ->update(['reviewed_by' => null]);
+            VerificationAttempt::query()
+                ->where('reviewed_by', $user->id)
+                ->update(['reviewed_by' => null]);
+            Verification::query()
+                ->where(fn (Builder $query) => $query
+                    ->whereIn('id', $verificationIds)
+                    ->orWhereIn('current_attempt_id', $attemptIds))
+                ->update(['current_attempt_id' => null]);
+            VerificationAttempt::query()->whereIn('id', $attemptIds)->delete();
+            Verification::query()->whereIn('id', $verificationIds)->delete();
+
+            DB::table('sessions')->where('user_id', $user->id)->delete();
+            $user->tokens()->delete();
+
+            $this->recordAudit($request, 'student_deleted', 'user', $user->id);
+            $user->delete();
+
+            return $paths;
+        });
+
+        $imageCleanupSucceeded = true;
+        $corCleanupSucceeded = true;
+        try {
+            if ($paths['images'] !== []) {
+                $imageCleanupSucceeded = Storage::disk((string) config('campus.listing_image_disk', 'public'))
+                    ->delete($paths['images']);
+            }
+        } catch (Throwable $exception) {
+            report($exception);
+            $imageCleanupSucceeded = false;
+        }
+        try {
+            if ($paths['cor'] !== []) {
+                $corCleanupSucceeded = Storage::disk('local')->delete($paths['cor']);
+            }
+        } catch (Throwable $exception) {
+            report($exception);
+            $corCleanupSucceeded = false;
+        }
+        $cleanupWarning = null;
+        if (! $imageCleanupSucceeded || ! $corCleanupSucceeded) {
+            report(new RuntimeException('Some files for a deleted student account could not be removed.'));
+            $cleanupWarning = 'The account was deleted, but some stored files could not be removed.';
+        }
+
+        return response()->json([
+            'message' => 'Deactivated student account and related data deleted.',
+            'warning' => $cleanupWarning,
         ]);
     }
 

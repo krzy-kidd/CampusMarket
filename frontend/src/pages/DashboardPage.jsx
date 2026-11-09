@@ -1,16 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Badge, Button, Card } from '../components/ui.jsx'
+import { Button } from '../components/ui.jsx'
 import api from '../lib/api.js'
 import './DashboardPage.css'
-
-const VERIFICATION_LABELS = {
-  not_configured: 'Academic year not configured',
-  not_submitted: 'COR not submitted',
-  pending: 'COR under review',
-  approved: 'Verified for this academic year',
-  rejected: 'COR needs attention',
-}
 
 const TRANSACTION_LABELS = {
   pending_agreement: 'Awaiting meetup confirmation',
@@ -19,6 +11,14 @@ const TRANSACTION_LABELS = {
   cancelled: 'Cancelled',
   disputed: 'Under review',
 }
+
+const TRANSACTION_CHART_STATUSES = [
+  { key: 'pending_agreement', label: 'Awaiting confirmation', tone: 'pending' },
+  { key: 'meetup_arranged', label: 'Meetup arranged', tone: 'meetup' },
+  { key: 'disputed', label: 'Under review', tone: 'disputed' },
+  { key: 'completed', label: 'Completed', tone: 'completed' },
+  { key: 'cancelled', label: 'Cancelled', tone: 'cancelled' },
+]
 
 function getErrorMessage(error) {
   return error.response?.data?.message || 'CampusTrade could not load your overview. Please try again.'
@@ -42,9 +42,7 @@ export default function DashboardPage() {
     Promise.allSettled([
       api.get('/api/auth/me'),
       api.get('/api/auth/verification/status'),
-      api.get('/api/auth/listings'),
       api.get('/api/auth/transactions'),
-      api.get('/api/auth/notifications'),
       api.get('/api/auth/conversations'),
     ])
       .then((results) => {
@@ -57,7 +55,7 @@ export default function DashboardPage() {
           return
         }
 
-        const [account, verification, listings, transactions, notifications, conversations] = results
+        const [account, verification, transactions, conversations] = results
         if (account.status === 'rejected') {
           setError(getErrorMessage(account.reason))
           return
@@ -73,16 +71,13 @@ export default function DashboardPage() {
         const verificationData = verification.status === 'fulfilled'
           ? verification.value.data || {}
           : { status: 'unavailable' }
-        const listingData = listings.status === 'fulfilled'
-          && Array.isArray(listings.value.data?.listings)
-          ? listings.value.data.listings
-          : null
         const transactionData = transactions.status === 'fulfilled'
           && Array.isArray(transactions.value.data?.transactions)
           ? transactions.value.data.transactions
           : null
-        const notificationData = notifications.status === 'fulfilled'
-          ? notifications.value.data || {}
+        const activeTransactionCount = transactions.status === 'fulfilled'
+          && Number.isFinite(Number(transactions.value.data?.active_count))
+          ? Number(transactions.value.data.active_count)
           : null
         const conversationData = conversations.status === 'fulfilled'
           && Array.isArray(conversations.value.data?.conversations)
@@ -91,9 +86,9 @@ export default function DashboardPage() {
         setOverview({
           account: accountData,
           verification: verificationData,
-          listings: listingData,
           transactions: transactionData,
-          notifications: notificationData,
+          activeTransactionCount,
+          transactionsHaveMore: Boolean(transactions.value?.data?.next_cursor),
           conversations: conversationData,
         })
         setError(optionalDataFailed ? 'Some overview details are temporarily unavailable.' : '')
@@ -122,14 +117,15 @@ export default function DashboardPage() {
     )
   }
 
-  const { account, verification, listings, transactions, notifications, conversations } = overview
+  const { account, verification, transactions, conversations } = overview
   const status = verification.status || account.verification_status || 'not_submitted'
-  const verificationVariant = status === 'approved' ? 'success'
-    : status === 'rejected' ? 'danger'
-      : status === 'pending' ? 'warning' : 'neutral'
-  const activeListings = listings?.filter((listing) => listing?.listing_status === 'available').length ?? null
   const recentTransactions = transactions?.slice(0, 4) ?? []
   const recentConversations = conversations?.slice(0, 3) ?? []
+  const transactionCounts = TRANSACTION_CHART_STATUSES.map((item) => ({
+    ...item,
+    count: transactions?.filter((transaction) => transaction.transaction_status === item.key).length ?? 0,
+  }))
+  const maxTransactionCount = Math.max(1, ...transactionCounts.map((item) => item.count))
   const canCreateListing = account.account_status === 'active'
     && account.email_verified
     && verification.is_verified
@@ -143,42 +139,9 @@ export default function DashboardPage() {
           <p>Keep track of your verification, listings, messages, and meetups.</p>
         </div>
         <div className="dashboard-heading-actions">
-          <Link className="secondary-link" to="/account">Account and verification</Link>
           <Button to="/marketplace">Browse marketplace</Button>
         </div>
       </header>
-
-      <section className="dashboard-status-grid" aria-label="Account status">
-        <Card className="dashboard-status-card">
-          <span className="dashboard-status-label">Account status</span>
-          <Badge variant={account.account_status === 'active' ? 'success' : 'danger'}>
-            {account.account_status || 'Unavailable'}
-          </Badge>
-        </Card>
-        <Card className="dashboard-status-card">
-          <span className="dashboard-status-label">WMSU email</span>
-          <Badge variant={account.email_verified ? 'success' : 'warning'}>
-            {account.email_verified ? 'Verified' : 'Needs verification'}
-          </Badge>
-        </Card>
-        <Card className="dashboard-status-card">
-          <span className="dashboard-status-label">Academic verification</span>
-          <Badge variant={verificationVariant}>{VERIFICATION_LABELS[status] || 'Status unavailable'}</Badge>
-          {verification.academic_year && <small>{verification.academic_year}</small>}
-        </Card>
-        <Card className="dashboard-status-card">
-          <span className="dashboard-status-label">Available listings</span>
-          <strong>{activeListings ?? '—'}</strong>
-          {activeListings === null && <small>Temporarily unavailable</small>}
-          <Link to="/my-listings">Manage listings</Link>
-        </Card>
-        <Card className="dashboard-status-card">
-          <span className="dashboard-status-label">Unread notifications</span>
-          <strong>{notifications?.unread_count ?? '—'}</strong>
-          {!notifications && <small>Temporarily unavailable</small>}
-          <Link to="/notifications">Open notifications</Link>
-        </Card>
-      </section>
 
       {account.account_status !== 'active' ? (
         <section className="dashboard-verification-callout" aria-labelledby="dashboard-account-title">
@@ -212,6 +175,50 @@ export default function DashboardPage() {
           <Button variant="secondary" onClick={retryOverview}>Refresh overview</Button>
         </div>
       )}
+
+      <section className="dashboard-transaction-insights" aria-labelledby="dashboard-insights-title">
+        <div className="dashboard-insights-heading">
+          <div>
+            <p className="eyebrow">Your activity</p>
+            <h2 id="dashboard-insights-title">Transaction overview</h2>
+            <p>
+              {overview.transactionsHaveMore
+                ? 'Status breakdown for your 20 most recently updated transactions.'
+                : 'Status breakdown of your transaction activity.'}
+            </p>
+          </div>
+          <Link className="dashboard-active-summary" to="/transactions">
+            <span>Active transactions</span>
+            <strong>{overview.activeTransactionCount ?? '—'}</strong>
+            <small>View transaction list <span aria-hidden="true">→</span></small>
+          </Link>
+        </div>
+        {transactions === null ? (
+          <div className="dashboard-empty">
+            <p>Transaction statistics are temporarily unavailable.</p>
+          </div>
+        ) : transactions.length ? (
+          <ul className="dashboard-transaction-chart" aria-label="Transactions grouped by status">
+            {transactionCounts.map((item) => (
+              <li key={item.key}>
+                <span className="dashboard-chart-label">{item.label}</span>
+                <span className="dashboard-chart-track" aria-hidden="true">
+                  <span
+                    className={`dashboard-chart-bar is-${item.tone}`}
+                    style={{ width: `${(item.count / maxTransactionCount) * 100}%` }}
+                  />
+                </span>
+                <strong>{item.count}</strong>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="dashboard-empty dashboard-chart-empty">
+            <p>No transaction activity yet. Browse the marketplace to find something you need.</p>
+            <Link to="/marketplace">Explore listings</Link>
+          </div>
+        )}
+      </section>
 
       <div className="dashboard-content-grid">
         <section className="dashboard-panel" aria-labelledby="dashboard-transactions-title">

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api.js'
+import CorFileViewer from '../components/CorFileViewer.jsx'
 
 const sections = [
   ['overview', 'Overview'],
@@ -21,7 +22,7 @@ function getError(error) {
     || error.message
 }
 
-async function fetchAdminData(section, search) {
+async function fetchAdminData(section, search, page = 1) {
   const [{ data: me }, { data: summary }] = await Promise.all([
     api.get('/api/auth/me'),
     api.get('/api/auth/admin/dashboard'),
@@ -38,10 +39,12 @@ async function fetchAdminData(section, search) {
     'platform-settings': 'platform-settings',
     'audit-logs': 'audit-logs',
   }
+  const params = {
+    ...(section === 'students' && search ? { search } : {}),
+    ...(page > 1 ? { page } : {}),
+  }
   const { data } = paths[section]
-    ? await api.get(`/api/auth/admin/${paths[section]}`, {
-      params: section === 'students' && search ? { search } : {},
-    })
+    ? await api.get(`/api/auth/admin/${paths[section]}`, { params })
     : { data: {} }
   let pendingVerifications = []
   let recentAuditLogs = []
@@ -60,6 +63,9 @@ async function fetchAdminData(section, search) {
     records: data.platform_settings
       ? [data.platform_settings]
       : data.data || data.verifications || data.academic_years || data.categories || data.admins || data.listings || [],
+    nextPage: Number.isInteger(data.current_page) && data.current_page < data.last_page
+      ? data.current_page + 1
+      : null,
     pendingVerifications,
     recentAuditLogs,
   }
@@ -78,34 +84,71 @@ function AdminPage() {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [sectionLoading, setSectionLoading] = useState(true)
+  const [nextPage, setNextPage] = useState(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const sectionRequestId = useRef(0)
+  const mutationRequestId = useRef(0)
 
   const isSuperAdmin = user?.admin_role === 'super_admin'
   const visibleSections = isSuperAdmin ? sections : sections.slice(0, 2)
 
-  async function load() {
-    const data = await fetchAdminData(section, search)
-    setUser(data.user)
-    setDashboard(data.dashboard)
-    setRecords(data.records)
-    setPendingVerifications(data.pendingVerifications)
-    setRecentAuditLogs(data.recentAuditLogs)
+  async function load(
+    targetSection = section,
+    targetSearch = search,
+    requestId = sectionRequestId.current,
+  ) {
+    if (requestId !== sectionRequestId.current) return
+    setSectionLoading(true)
+    setRecords([])
+    setNextPage(null)
+    try {
+      const data = await fetchAdminData(targetSection, targetSearch)
+      if (requestId !== sectionRequestId.current) return
+      setUser(data.user)
+      setDashboard(data.dashboard)
+      setRecords(data.records)
+      setNextPage(data.nextPage)
+      setPendingVerifications(data.pendingVerifications)
+      setRecentAuditLogs(data.recentAuditLogs)
+    } finally {
+      if (requestId === sectionRequestId.current) setSectionLoading(false)
+    }
+  }
+
+  function navigateSection(nextSection) {
+    sectionRequestId.current += 1
+    setRecords([])
+    setNextPage(null)
+    setSectionLoading(true)
+    setLoadingMore(false)
+    setBusy(false)
+    setSection(nextSection)
+    setMessage('')
+    setError('')
   }
 
   useEffect(() => {
     let active = true
+    const requestId = ++sectionRequestId.current
     fetchAdminData(section, search)
       .then((data) => {
-        if (!active) return
+        if (!active || requestId !== sectionRequestId.current) return
         setUser(data.user)
         setDashboard(data.dashboard)
         setRecords(data.records)
+        setNextPage(data.nextPage)
         setPendingVerifications(data.pendingVerifications)
         setRecentAuditLogs(data.recentAuditLogs)
         setLoading(false)
+        setSectionLoading(false)
         setError('')
       })
       .catch((requestError) => {
-        if (!active) return
+        if (!active || requestId !== sectionRequestId.current) return
+        setRecords([])
+        setNextPage(null)
+        setSectionLoading(false)
         setError(requestError.response?.status === 401
           ? 'Sign in with an administrator account to continue.'
           : getError(requestError))
@@ -114,51 +157,97 @@ function AdminPage() {
     return () => { active = false }
   }, [section, search])
 
+  async function loadMore() {
+    if (!nextPage || loadingMore || busy) return
+    const requestedSection = section
+    const requestedSearch = search
+    const requestId = sectionRequestId.current
+    const requestedPage = nextPage
+    setLoadingMore(true)
+    setError('')
+    try {
+      const data = await fetchAdminData(requestedSection, requestedSearch, requestedPage)
+      if (requestId !== sectionRequestId.current) return
+      setRecords((current) => [...current, ...data.records])
+      setNextPage(data.nextPage)
+    } catch (requestError) {
+      if (requestId === sectionRequestId.current) setError(getError(requestError))
+    } finally {
+      if (requestId === sectionRequestId.current) setLoadingMore(false)
+    }
+  }
+
   async function submitForm(event, endpoint, method = 'post', payload = form) {
     event.preventDefault()
+    const requestId = sectionRequestId.current
+    const mutationId = ++mutationRequestId.current
     setBusy(true)
     setError('')
     setMessage('')
     try {
       await api[method](`/api/auth/admin/${endpoint}`, payload)
+      if (requestId !== sectionRequestId.current) return
       setForm({})
       setMessage('Changes saved.')
-      await load()
+      await load(section, search, requestId)
     } catch (requestError) {
-      setError(getError(requestError))
+      if (requestId === sectionRequestId.current) setError(getError(requestError))
     } finally {
-      setBusy(false)
+      if (mutationId === mutationRequestId.current) setBusy(false)
     }
   }
 
   async function update(endpoint, payload, verb = 'patch') {
+    const requestId = sectionRequestId.current
+    const mutationId = ++mutationRequestId.current
     setBusy(true)
     setError('')
     setMessage('')
     try {
       await api[verb](`/api/auth/admin/${endpoint}`, payload)
+      const { data: account } = await api.get('/api/auth/me')
+      const lostSuperAdminAccess = isSuperAdmin && account.user.admin_role !== 'super_admin'
+      setUser(account.user)
+
+      if (lostSuperAdminAccess) {
+        sectionRequestId.current += 1
+        setDashboard(null)
+        setRecords([])
+        setNextPage(null)
+        setPendingVerifications([])
+        setRecentAuditLogs([])
+        setLoading(true)
+        setSectionLoading(true)
+        setSection('overview')
+        return
+      }
+
+      if (requestId !== sectionRequestId.current) return
       setMessage('Changes saved.')
-      await load()
+      await load(section, search, requestId)
     } catch (requestError) {
-      setError(getError(requestError))
+      if (requestId === sectionRequestId.current) setError(getError(requestError))
     } finally {
-      setBusy(false)
+      if (mutationId === mutationRequestId.current) setBusy(false)
     }
   }
 
-  async function remove(endpoint) {
-    if (!window.confirm('Delete this record?')) return
+  async function remove(endpoint, confirmationMessage = 'Delete this record?') {
+    if (!window.confirm(confirmationMessage)) return
+    const requestId = sectionRequestId.current
+    const mutationId = ++mutationRequestId.current
     setBusy(true)
     setError('')
     setMessage('')
     try {
       const { data } = await api.delete(`/api/auth/admin/${endpoint}`)
-      setMessage(data.message || 'Record deleted.')
-      await load()
+      if (requestId !== sectionRequestId.current) return
+      setMessage(data.warning ? `${data.message} ${data.warning}` : data.message || 'Record deleted.')
+      await load(section, search, requestId)
     } catch (requestError) {
-      setError(getError(requestError))
+      if (requestId === sectionRequestId.current) setError(getError(requestError))
     } finally {
-      setBusy(false)
+      if (mutationId === mutationRequestId.current) setBusy(false)
     }
   }
 
@@ -202,7 +291,7 @@ function AdminPage() {
           <p className="admin-nav-label">WORKSPACE</p>
           <nav className="admin-nav" aria-label="Admin sections">
             {visibleSections.map(([key, title]) => (
-              <button key={key} type="button" className={section === key ? 'is-selected' : ''} aria-current={section === key ? 'page' : undefined} onClick={() => { setSection(key); setMessage(''); setError('') }}>
+              <button key={key} type="button" className={section === key ? 'is-selected' : ''} aria-current={section === key ? 'page' : undefined} onClick={() => navigateSection(key)}>
                 <span className="admin-nav-indicator" aria-hidden="true" />
                 <span>{title}</span>
                 {key === 'verifications' && dashboard.pending_verifications > 0 && <span className="admin-nav-count">{dashboard.pending_verifications}</span>}
@@ -215,8 +304,7 @@ function AdminPage() {
               <span className="admin-avatar" aria-hidden="true">{user.first_name?.charAt(0) || 'A'}</span>
               <span><strong>{user.first_name} {user.last_name}</strong><small>{isSuperAdmin ? 'Super Admin' : 'Verification Admin'}</small></span>
             </div>
-            <Link to="/account">Student account</Link>
-            <Link to="/marketplace">Back to marketplace</Link>
+            <Link to="/account">Account</Link>
           </div>
         </aside>
         <div className="admin-main">
@@ -231,47 +319,76 @@ function AdminPage() {
           {error && <p className="form-error admin-notice" role="alert">{error}</p>}
           {message && <p className="form-message admin-notice" role="status">{message}</p>}
           <section className="admin-content" aria-live="polite">
-            {section === 'overview' && (
-              <Overview
-                dashboard={dashboard}
-                pendingVerifications={pendingVerifications}
-                recentAuditLogs={recentAuditLogs}
-                isSuperAdmin={isSuperAdmin}
-                busy={busy}
-                onReview={review}
-                onNavigate={setSection}
-              />
+            {sectionLoading ? (
+              <p role="status">Loading {sections.find(([key]) => key === section)?.[1].toLowerCase()}…</p>
+            ) : (
+              <>
+                {section === 'overview' && (
+                  <Overview
+                    dashboard={dashboard}
+                    pendingVerifications={pendingVerifications}
+                    recentAuditLogs={recentAuditLogs}
+                    isSuperAdmin={isSuperAdmin}
+                    busy={busy}
+                    onReview={review}
+                    onNavigate={navigateSection}
+                  />
+                )}
+                {section === 'verifications' && (
+                  <VerificationList records={records} busy={busy} onReview={review} />
+                )}
+                {isSuperAdmin && section === 'academic-years' && (
+                  <AcademicYears records={records} form={form} setForm={setForm} busy={busy} onSubmit={(event) => submitForm(event, 'academic-years')} onUpdate={update} onDelete={remove} />
+                )}
+                {isSuperAdmin && section === 'categories' && (
+                  <Categories records={records} form={form} setForm={setForm} busy={busy} onSubmit={(event) => submitForm(event, 'categories')} onUpdate={update} onDelete={remove} />
+                )}
+                {isSuperAdmin && section === 'students' && (
+                  <Students
+                    records={records}
+                    search={search}
+                    setSearch={(value) => {
+                      sectionRequestId.current += 1
+                      setRecords([])
+                      setNextPage(null)
+                      setSectionLoading(true)
+                      setLoadingMore(false)
+                      setBusy(false)
+                      setSearch(value)
+                    }}
+                    busy={busy}
+                    onUpdate={update}
+                    onDelete={remove}
+                  />
+                )}
+                {isSuperAdmin && section === 'admins' && (
+                  <Admins records={records} currentUserId={user.id} form={form} setForm={setForm} busy={busy} onSubmit={(event) => submitForm(event, 'admins')} onUpdate={update} />
+                )}
+                {isSuperAdmin && section === 'listings' && (
+                  <AdminListings records={records} busy={busy} onArchive={(listing) => update(`listings/${listing.id}/archive`, {})} />
+                )}
+                {isSuperAdmin && section === 'reports' && (
+                  <Reports records={records} busy={busy} onUpdate={update} />
+                )}
+                {isSuperAdmin && section === 'platform-settings' && (
+                  <PlatformSettings
+                    key={records[0]?.seller_unlock_response_hours}
+                    records={records}
+                    busy={busy}
+                    onUpdate={update}
+                  />
+                )}
+                {isSuperAdmin && section === 'audit-logs' && <AuditLogs records={records} />}
+                {nextPage && (
+                  <div className="admin-pagination">
+                    <span>{records.length} records loaded</span>
+                    <button type="button" disabled={loadingMore || busy} onClick={loadMore}>
+                      {loadingMore ? 'Loading…' : 'Load more'}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
-            {section === 'verifications' && (
-              <VerificationList records={records} busy={busy} onReview={review} />
-            )}
-            {isSuperAdmin && section === 'academic-years' && (
-              <AcademicYears records={records} form={form} setForm={setForm} busy={busy} onSubmit={(event) => submitForm(event, 'academic-years')} onUpdate={update} onDelete={remove} />
-            )}
-            {isSuperAdmin && section === 'categories' && (
-              <Categories records={records} form={form} setForm={setForm} busy={busy} onSubmit={(event) => submitForm(event, 'categories')} onUpdate={update} onDelete={remove} />
-            )}
-            {isSuperAdmin && section === 'students' && (
-              <Students records={records} search={search} setSearch={setSearch} busy={busy} onUpdate={update} />
-            )}
-            {isSuperAdmin && section === 'admins' && (
-              <Admins records={records} currentUserId={user.id} form={form} setForm={setForm} busy={busy} onSubmit={(event) => submitForm(event, 'admins')} onUpdate={update} />
-            )}
-            {isSuperAdmin && section === 'listings' && (
-              <AdminListings records={records} busy={busy} onArchive={(listing) => update(`listings/${listing.id}/archive`, {})} />
-            )}
-            {isSuperAdmin && section === 'reports' && (
-              <Reports records={records} busy={busy} onUpdate={update} />
-            )}
-            {isSuperAdmin && section === 'platform-settings' && (
-              <PlatformSettings
-                key={records[0]?.seller_unlock_response_hours}
-                records={records}
-                busy={busy}
-                onUpdate={update}
-              />
-            )}
-            {isSuperAdmin && section === 'audit-logs' && <AuditLogs records={records} />}
           </section>
         </div>
       </div>
@@ -293,7 +410,18 @@ function AdminListings({ records, busy, onArchive }) {
             </div>
             {listing.listing_status !== 'archived' && listing.listing_status !== 'sold' && (
               <div className="admin-actions">
-                <button type="button" className="danger-button" disabled={busy} onClick={() => onArchive(listing)}>Archive listing</button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (window.confirm(`Archive "${listing.title}"? It will leave the marketplace, but the seller can relist it if eligible.`)) {
+                      onArchive(listing)
+                    }
+                  }}
+                >
+                  Archive listing
+                </button>
               </div>
             )}
           </article>
@@ -310,7 +438,11 @@ function Overview({ dashboard, pendingVerifications, recentAuditLogs, isSuperAdm
       { label: 'Active students', value: dashboard.active_students, section: 'students', tone: 'blue' },
       { label: 'Open reports', value: dashboard.pending_reports, section: 'reports', tone: 'amber' },
       { label: 'Marketplace categories', value: dashboard.categories, section: 'categories', tone: 'violet' },
-    ] : []),
+    ] : [
+      { label: 'COR decisions by you', value: dashboard.reviews_by_admin, tone: 'blue' },
+      { label: 'Approved by you', value: dashboard.approvals_by_admin, tone: 'green' },
+      { label: 'Rejected by you', value: dashboard.rejections_by_admin, tone: 'amber' },
+    ]),
   ]
 
   return (
@@ -323,12 +455,27 @@ function Overview({ dashboard, pendingVerifications, recentAuditLogs, isSuperAdm
         <span className="admin-year-badge">{dashboard.current_academic_year || 'No current academic year'}</span>
       </div>
       <div className="admin-metrics">
-        {metrics.map(({ label, value, section, tone }) => (
-          <button type="button" className={`admin-metric admin-metric-${tone}`} key={label} onClick={() => onNavigate(section)}>
-            <span>{label}</span><strong>{value ?? 0}</strong><small>View details <span aria-hidden="true">→</span></small>
-          </button>
-        ))}
+        {metrics.map(({ label, value, section, tone }) => {
+          const content = (
+            <>
+              <span>{label}</span>
+              <strong>{value ?? 0}</strong>
+              <small>{section ? <>View details <span aria-hidden="true">→</span></> : 'All time'}</small>
+            </>
+          )
+
+          return section ? (
+            <button type="button" className={`admin-metric admin-metric-${tone}`} key={label} onClick={() => onNavigate(section)}>
+              {content}
+            </button>
+          ) : (
+            <article className={`admin-metric admin-metric-${tone} admin-metric-static`} key={label}>
+              {content}
+            </article>
+          )
+        })}
       </div>
+      {isSuperAdmin && <MonthlyAnalytics data={dashboard.monthly_analytics || []} />}
       <div className="admin-overview-grid">
         <section className="admin-panel">
           <div className="admin-panel-heading">
@@ -345,7 +492,7 @@ function Overview({ dashboard, pendingVerifications, recentAuditLogs, isSuperAdm
                       <strong>{item.user?.first_name} {item.user?.last_name}</strong>
                       <span>{item.user?.student_id_number} · {item.academic_year?.academic_year}</span>
                       {item.current_attempt_id && (
-                        <a href={`${api.defaults.baseURL}/api/auth/verification-attempts/${item.current_attempt_id}/file`} target="_blank" rel="noreferrer">View private COR</a>
+                        <CorFileViewer attemptId={item.current_attempt_id} label="View private COR" />
                       )}
                     </div>
                   </div>
@@ -380,7 +527,7 @@ function Overview({ dashboard, pendingVerifications, recentAuditLogs, isSuperAdm
             <div className="admin-role-summary">
               <span className="admin-role-icon" aria-hidden="true">✓</span>
               <strong>Verification Admin</strong>
-              <p>You can review COR submissions for the current academic year.</p>
+              <p>Your role is limited to reviewing COR submissions. Super Admins manage administrator accounts, system settings, and platform controls.</p>
               <button type="button" className="admin-text-button" onClick={() => onNavigate('verifications')}>Open COR reviews →</button>
             </div>
           )}
@@ -390,10 +537,86 @@ function Overview({ dashboard, pendingVerifications, recentAuditLogs, isSuperAdm
   )
 }
 
+function MonthlyAnalytics({ data }) {
+  const width = 720
+  const height = 260
+  const padding = { top: 16, right: 20, bottom: 42, left: 42 }
+  const plotWidth = width - padding.left - padding.right
+  const plotHeight = height - padding.top - padding.bottom
+  const maximum = Math.max(1, ...data.flatMap((month) => [month.students, month.listings]))
+  const x = (index) => padding.left + (data.length > 1 ? (index * plotWidth) / (data.length - 1) : plotWidth / 2)
+  const y = (value) => padding.top + plotHeight - (value / maximum) * plotHeight
+  const series = [
+    { key: 'students', label: 'Student registrations', color: '#7a1c2e' },
+    { key: 'listings', label: 'New listings', color: '#087a50' },
+  ]
+
+  return (
+    <section className="admin-panel admin-analytics" aria-labelledby="admin-analytics-title">
+      <div className="admin-panel-heading">
+        <div><h3 id="admin-analytics-title">Marketplace growth</h3><p>Student registrations and new listings by month.</p></div>
+        <span className="admin-analytics-range">Last 6 months</span>
+      </div>
+      <div className="admin-chart-legend" aria-hidden="true">
+        {series.map((item) => <span key={item.key}><i style={{ backgroundColor: item.color }} />{item.label}</span>)}
+      </div>
+      <svg className="admin-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-labelledby="admin-chart-title admin-chart-description">
+        <title id="admin-chart-title">Monthly student registrations and new listings</title>
+        <desc id="admin-chart-description">A line chart showing the number of student registrations and new listings for each of the last six months.</desc>
+        {[0, 0.5, 1].map((fraction) => {
+          const value = Math.round(maximum * fraction)
+          const gridY = y(value)
+          return (
+            <g key={fraction}>
+              <line x1={padding.left} x2={width - padding.right} y1={gridY} y2={gridY} className="admin-chart-gridline" />
+              <text x={padding.left - 10} y={gridY + 4} textAnchor="end" className="admin-chart-label">{value}</text>
+            </g>
+          )
+        })}
+        {data.map((month, index) => (
+          <text key={month.month} x={x(index)} y={height - 12} textAnchor="middle" className="admin-chart-label">{month.month}</text>
+        ))}
+        {series.map((item) => (
+          <g key={item.key}>
+            {data.length > 1 && <polyline
+              points={data.map((month, index) => `${x(index)},${y(month[item.key])}`).join(' ')}
+              fill="none"
+              stroke={item.color}
+              strokeWidth="3"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />}
+            {data.map((month, index) => (
+              <circle key={month.month} cx={x(index)} cy={y(month[item.key])} r="4.5" fill={item.color}>
+                <title>{`${month.month}: ${month[item.key]} ${item.label.toLowerCase()}`}</title>
+              </circle>
+            ))}
+          </g>
+        ))}
+      </svg>
+      <table className="admin-chart-data">
+        <caption>Monthly analytics data</caption>
+        <thead><tr><th scope="col">Month</th>{series.map((item) => <th scope="col" key={item.key}>{item.label}</th>)}</tr></thead>
+        <tbody>{data.map((month) => <tr key={month.month}><th scope="row">{month.month}</th>{series.map((item) => <td key={item.key}>{month[item.key]}</td>)}</tr>)}</tbody>
+      </table>
+    </section>
+  )
+}
+
 function formatDateTime(value) {
   if (!value) return 'Date unavailable'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
+function formatDate(value) {
+  if (!value) return 'Date unavailable'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'UTC' }).format(date)
 }
 
 function VerificationList({ records, busy, onReview }) {
@@ -406,9 +629,9 @@ function VerificationList({ records, busy, onReview }) {
           <article className="admin-record" key={item.id}>
             <h3>{item.user?.first_name} {item.user?.last_name}</h3>
             <p>{item.user?.student_id_number} · {item.user?.email}</p>
-            <p>{item.academic_year?.academic_year} · Submitted {item.current_attempt?.created_at}</p>
+            <p>{item.academic_year?.academic_year} · Submitted {formatDateTime(item.current_attempt?.created_at)}</p>
             {item.current_attempt_id && (
-              <a className="text-link" href={`${api.defaults.baseURL}/api/auth/verification-attempts/${item.current_attempt_id}/file`} target="_blank" rel="noreferrer">View private COR</a>
+              <CorFileViewer attemptId={item.current_attempt_id} label="View private COR" />
             )}
             <div className="admin-actions">
               <button type="button" disabled={busy} onClick={() => onReview(item, 'approved')}>Approve</button>
@@ -435,7 +658,7 @@ function AcademicYears({ records, form, setForm, busy, onSubmit, onUpdate, onDel
       <div className="admin-record-list">
         {records.map((year) => (
           <article className="admin-record admin-record-row" key={year.id}>
-            <div><h3>{year.academic_year} {year.is_current && <span className="status-pill">Current</span>}</h3><p>{year.start_date} to {year.end_date}</p></div>
+            <div><h3>{year.academic_year} {year.is_current && <span className="status-pill">Current</span>}</h3><p>{formatDate(year.start_date)} to {formatDate(year.end_date)}</p></div>
             <div className="admin-actions">
               {!year.is_current && <button type="button" disabled={busy} onClick={() => onUpdate(`academic-years/${year.id}`, { is_current: true })}>Set current</button>}
               <button type="button" className="danger-button" disabled={busy} onClick={() => onDelete(`academic-years/${year.id}`)}>Delete</button>
@@ -453,7 +676,7 @@ function Categories({ records, form, setForm, busy, onSubmit, onUpdate, onDelete
       <h2>Categories</h2>
       <form className="admin-form" onSubmit={onSubmit}>
         <label>Category name<input value={form.category_name || ''} onChange={(event) => setForm({ ...form, category_name: event.target.value })} required maxLength="150" /></label>
-        <label>Parent category<select value={form.parent_category_id || ''} onChange={(event) => setForm({ ...form, parent_category_id: event.target.value || null })}><option value="">Top-level category</option>{records.map((category) => <option key={category.id} value={category.id}>{category.category_name}</option>)}</select></label>
+        <label>Parent category (top-level only)<select value={form.parent_category_id || ''} onChange={(event) => setForm({ ...form, parent_category_id: event.target.value || null })}><option value="">Top-level category</option>{records.filter((category) => !category.parent_category_id).map((category) => <option key={category.id} value={category.id}>{category.category_name}</option>)}</select></label>
         <label>Description<textarea value={form.description || ''} onChange={(event) => setForm({ ...form, description: event.target.value })} rows="2" /></label>
         <button className="primary-link" disabled={busy}>Add category</button>
       </form>
@@ -472,16 +695,59 @@ function Categories({ records, form, setForm, busy, onSubmit, onUpdate, onDelete
   )
 }
 
-function Students({ records, search, setSearch, busy, onUpdate }) {
+function Students({ records, search, setSearch, busy, onUpdate, onDelete }) {
   return (
     <>
       <h2>Student management</h2>
       <label className="admin-search">Search students<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, student ID, or email" /></label>
       <div className="admin-record-list">
         {records.map((student) => (
-          <article className="admin-record admin-record-row" key={student.id}>
-            <div><h3>{student.first_name} {student.last_name}</h3><p>{student.student_id_number} · {student.email}</p><p>{student.email_verified_at ? 'Email verified' : 'Email not verified'}</p></div>
-            <label className="admin-inline-field">Account status<select value={student.account_status} disabled={busy} onChange={(event) => onUpdate(`students/${student.id}`, { account_status: event.target.value })}>{['active', 'restricted', 'suspended', 'deactivated'].map((status) => <option key={status}>{status}</option>)}</select></label>
+          <article className="admin-record admin-student-record" key={student.id}>
+            <div className="admin-student-identity">
+              <span className="admin-student-avatar" aria-hidden="true">
+                {student.first_name?.charAt(0) || '?'}
+              </span>
+              <div>
+                <h3>{student.first_name} {student.last_name}</h3>
+                <p>{student.student_id_number} <span aria-hidden="true">·</span> {student.email}</p>
+                <span className={`admin-student-email-state${student.email_verified_at ? ' is-verified' : ''}`}>
+                  <span aria-hidden="true">{student.email_verified_at ? '✓' : '!'}</span>
+                  {student.email_verified_at ? 'Email verified' : 'Email not verified'}
+                </span>
+              </div>
+            </div>
+            <label className="admin-inline-field admin-student-status">
+              <span>Account status</span>
+              <select
+                value={student.account_status}
+                disabled={busy}
+                onChange={(event) => onUpdate(`students/${student.id}`, { account_status: event.target.value })}
+              >
+                {['active', 'restricted', 'suspended', 'deactivated'].map((status) => (
+                  <option key={status}>{status}</option>
+                ))}
+              </select>
+            </label>
+            <div className="admin-student-actions">
+              {student.account_status === 'deactivated' ? (
+                <button
+                  type="button"
+                  className="admin-student-delete"
+                  disabled={busy}
+                  onClick={() => onDelete(
+                    `students/${student.id}`,
+                    `Permanently delete ${student.first_name} ${student.last_name}'s account, including listings, messages, transactions, reviews, verification records, and uploaded files? This cannot be undone.`,
+                  )}
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M3.5 5.5h13m-11.5 0 .7 11h7.6l.7-11m-7.5 0v-2h4v2m-3 3v5m2-5v5" />
+                  </svg>
+                  Delete account
+                </button>
+              ) : (
+                <span className="admin-student-delete-placeholder" aria-hidden="true" />
+              )}
+            </div>
           </article>
         ))}
       </div>
@@ -539,7 +805,7 @@ function Reports({ records, busy, onUpdate }) {
         {records.map((report) => (
           <article className="admin-record" key={report.id}>
             <h3>{report.reason} <span className="status-pill">{report.report_status.replaceAll('_', ' ')}</span></h3>
-            <p>Reported by {report.reporter?.first_name} {report.reporter?.last_name} · {report.created_at}</p>
+            <p>Reported by {report.reporter?.first_name} {report.reporter?.last_name} · <time dateTime={report.created_at}>{formatDateTime(report.created_at)}</time></p>
             <p>{report.description}</p>
             {report.listing && <p>Listing: {report.listing.title}</p>}
             {report.transaction && (
@@ -616,7 +882,7 @@ function AuditLogs({ records }) {
         {records.map((log) => (
           <article className="admin-record admin-record-row" key={log.id}>
             <div><h3>{log.action.replaceAll('_', ' ')}</h3><p>{log.admin?.user?.email} · {log.target_type} #{log.target_id ?? '—'}</p></div>
-            <time>{log.created_at}</time>
+            <time dateTime={log.created_at}>{formatDateTime(log.created_at)}</time>
           </article>
         ))}
         {!records.length && <p className="status-detail">No audit entries yet.</p>}

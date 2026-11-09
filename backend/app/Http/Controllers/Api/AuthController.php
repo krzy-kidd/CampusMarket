@@ -23,8 +23,34 @@ class AuthController extends Controller
             'email' => Str::lower(trim((string) $request->input('email'))),
         ]);
 
+        $studentIdNumber = $request->input('student_id_number');
+        if (is_string($studentIdNumber) && preg_match('/\A\d{4}-?\d{5}\z/', $studentIdNumber) === 1) {
+            $request->merge([
+                'student_id_number' => str_replace('-', '', $studentIdNumber),
+            ]);
+        }
+
         $validated = $request->validate([
-            'student_id_number' => ['required', 'string', 'max:50', 'unique:users,student_id_number'],
+            'student_id_number' => [
+                'required',
+                'string',
+                'regex:/\A\d{9}\z/',
+                'unique:users,student_id_number',
+                function (string $attribute, mixed $value, \Closure $fail) use ($request): void {
+                    $email = $request->input('email');
+                    if (! is_string($value) || ! is_string($email)) {
+                        return;
+                    }
+
+                    $emailUsername = Str::before($email, '@');
+                    if (
+                        preg_match('/\A[a-z]+(\d{9})\z/i', $emailUsername, $matches) !== 1
+                        || ! hash_equals($matches[1] ?? '', $value)
+                    ) {
+                        $fail('The student ID number must match the 9-digit number in your WMSU email address.');
+                    }
+                },
+            ],
             'first_name' => ['required', 'string', 'max:100'],
             'last_name' => ['required', 'string', 'max:100'],
             'email' => [
@@ -123,6 +149,22 @@ class AuthController extends Controller
         $user->sendEmailVerificationNotification();
 
         return response()->json(['message' => 'A new email verification link has been sent.']);
+    }
+
+    public function verifyEmailLocally(Request $request): JsonResponse
+    {
+        abort_unless(config('app.env') === 'local', 404);
+
+        $user = $request->user();
+
+        if (! $user->hasVerifiedEmail()) {
+            $user->markEmailAsVerified();
+            event(new Verified($user));
+        }
+
+        return response()->json([
+            'message' => 'Email marked verified for local testing only. This does not verify your real email address.',
+        ]);
     }
 
     public function verifyEmail(Request $request, string $id, string $hash): JsonResponse

@@ -28,61 +28,77 @@ Route::prefix('auth')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('/email/verification-notification', [AuthController::class, 'sendVerificationNotification'])
             ->middleware('throttle:3,1');
+        Route::post('/email/verify-local', [AuthController::class, 'verifyEmailLocally'])
+            ->middleware('throttle:3,1');
         Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
             ->middleware(['signed', 'throttle:6,1'])
             ->name('verification.verify');
 
-        Route::get('/verification/status', [VerificationController::class, 'status']);
-        Route::get('/verification/history', [VerificationController::class, 'history']);
-        Route::get('/listings', [ListingController::class, 'mine']);
-        Route::post('/reports', [ReportController::class, 'store'])->middleware('throttle:5,1');
-        Route::get('/listings/{listing}', [ListingController::class, 'mineShow'])->whereNumber('listing');
-        Route::post('/listings', [ListingController::class, 'store'])->middleware('throttle:10,1');
-        Route::patch('/listings/{listing}', [ListingController::class, 'update'])->whereNumber('listing');
-        Route::delete('/listings/{listing}', [ListingController::class, 'archive'])->whereNumber('listing');
-        Route::post('/listings/{listing}/relist', [ListingController::class, 'relist'])->whereNumber('listing');
-        Route::get('/conversations', [ConversationController::class, 'index']);
-        Route::get('/notifications', [NotificationController::class, 'index']);
-        Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])
-            ->middleware('throttle:10,1');
-        Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markRead'])
-            ->whereNumber('notification')
-            ->middleware('throttle:30,1');
-        Route::post('/conversations', [ConversationController::class, 'store'])->middleware('throttle:20,1');
-        Route::get('/conversations/{conversation}', [ConversationController::class, 'show'])->whereNumber('conversation');
-        Route::post('/conversations/{conversation}/transactions', [TransactionController::class, 'createFromConversation'])
-            ->whereNumber('conversation')
-            ->middleware('throttle:10,1');
-        Route::get('/conversations/{conversation}/messages', [ConversationController::class, 'olderMessages'])
-            ->whereNumber('conversation');
-        Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'send'])
-            ->whereNumber('conversation')
-            ->middleware('throttle:30,1');
-        Route::get('/transactions', [TransactionController::class, 'index']);
-        Route::get('/transactions/{transaction}', [TransactionController::class, 'show'])->whereNumber('transaction');
-        Route::post('/transactions/{transaction}/reviews', [TransactionController::class, 'submitReview'])
-            ->whereNumber('transaction')
-            ->middleware('throttle:10,1');
-        Route::post('/transactions/{transaction}/meetup', [TransactionController::class, 'proposeMeetup'])
-            ->whereNumber('transaction')
-            ->middleware('throttle:20,1');
-        Route::post('/transactions/{transaction}/complete', [TransactionController::class, 'confirmCompletion'])
-            ->whereNumber('transaction')
-            ->middleware('throttle:20,1');
-        Route::post('/transactions/{transaction}/unlock-request', [TransactionController::class, 'requestUnlock'])
-            ->whereNumber('transaction')
-            ->middleware('throttle:10,1');
-        Route::post('/transactions/{transaction}/unlock-response', [TransactionController::class, 'respondToUnlock'])
-            ->whereNumber('transaction')
-            ->middleware('throttle:10,1');
-        Route::post('/transactions/{transaction}/dispute', [TransactionController::class, 'dispute'])
-            ->whereNumber('transaction')
-            ->middleware('throttle:5,1');
-        Route::post('/transactions/{transaction}/cancel', [TransactionController::class, 'cancel'])
-            ->whereNumber('transaction')
-            ->middleware('throttle:10,1');
-        Route::post('/verification/cor', [VerificationController::class, 'submit'])
-            ->middleware(['verified', 'throttle:5,1']);
+        Route::middleware('student.account')->group(function () {
+            Route::get('/verification/status', [VerificationController::class, 'status']);
+            Route::get('/verification/history', [VerificationController::class, 'history']);
+            Route::get('/listings', [ListingController::class, 'mine']);
+            Route::post('/reports', [ReportController::class, 'store'])->middleware('throttle:5,1');
+            Route::get('/listings/{listing}', [ListingController::class, 'mineShow'])->whereNumber('listing');
+            Route::post('/listings', [ListingController::class, 'store'])->middleware('throttle:10,1');
+            Route::post('/listings/{listing}/purchase', [TransactionController::class, 'purchaseListing'])
+                ->whereNumber('listing')
+                ->middleware('throttle:10,1');
+            Route::patch('/listings/{listing}', [ListingController::class, 'update'])->whereNumber('listing');
+            Route::delete('/listings/{listing}', [ListingController::class, 'archive'])->whereNumber('listing');
+            Route::post('/listings/{listing}/relist', [ListingController::class, 'relist'])->whereNumber('listing');
+            Route::get('/conversations', [ConversationController::class, 'index']);
+            Route::get('/notifications', [NotificationController::class, 'index']);
+            Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])
+                ->middleware('throttle:10,1');
+            Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markRead'])
+                ->whereNumber('notification')
+                ->middleware('throttle:30,1');
+            Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy'])
+                ->whereNumber('notification')
+                ->middleware('throttle:30,1');
+            Route::post('/conversations', [ConversationController::class, 'store'])->middleware('throttle:20,1');
+            Route::get('/conversations/{conversation}', [ConversationController::class, 'show'])->whereNumber('conversation');
+            Route::post('/conversations/{conversation}/transactions', [TransactionController::class, 'createFromConversation'])
+                ->whereNumber('conversation')
+                ->middleware('throttle:10,1');
+            Route::get('/conversations/{conversation}/messages', [ConversationController::class, 'olderMessages'])
+                ->whereNumber('conversation');
+            Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'send'])
+                ->whereNumber('conversation')
+                ->middleware('throttle:30,1');
+            Route::get('/transactions', [TransactionController::class, 'index']);
+            Route::get('/transactions/{transaction}', [TransactionController::class, 'show'])->whereNumber('transaction');
+            Route::post('/transactions/{transaction}/hide-from-history', [TransactionController::class, 'hideFromHistory'])
+                ->whereNumber('transaction')
+                ->middleware('throttle:10,1');
+            Route::post('/transactions/{transaction}/reviews', [TransactionController::class, 'submitReview'])
+                ->whereNumber('transaction')
+                ->middleware('throttle:10,1');
+            Route::post('/transactions/{transaction}/meetup', [TransactionController::class, 'proposeMeetup'])
+                ->whereNumber('transaction')
+                ->middleware('throttle:20,1');
+            Route::post('/transactions/{transaction}/complete', [TransactionController::class, 'confirmCompletion'])
+                ->whereNumber('transaction')
+                ->middleware('throttle:20,1');
+            Route::post('/transactions/{transaction}/unlock-request', [TransactionController::class, 'requestUnlock'])
+                ->whereNumber('transaction')
+                ->middleware('throttle:10,1');
+            Route::post('/transactions/{transaction}/unlock-response', [TransactionController::class, 'respondToUnlock'])
+                ->whereNumber('transaction')
+                ->middleware('throttle:10,1');
+            Route::post('/transactions/{transaction}/dispute', [TransactionController::class, 'dispute'])
+                ->whereNumber('transaction')
+                ->middleware('throttle:5,1');
+            Route::post('/transactions/{transaction}/cancel', [TransactionController::class, 'cancel'])
+                ->whereNumber('transaction')
+                ->middleware('throttle:10,1');
+            Route::post('/transactions/{transaction}/cancel-response', [TransactionController::class, 'respondToCancellation'])
+                ->whereNumber('transaction')
+                ->middleware('throttle:10,1');
+            Route::post('/verification/cor', [VerificationController::class, 'submit'])
+                ->middleware(['verified', 'throttle:5,1']);
+        });
         Route::get('/verification-attempts/{attempt}/file', [VerificationController::class, 'file'])
             ->whereNumber('attempt');
 
@@ -111,6 +127,8 @@ Route::prefix('auth')->group(function () {
 
                     Route::get('/students', [AdminDashboardController::class, 'students']);
                     Route::patch('/students/{user}', [AdminDashboardController::class, 'updateStudent'])
+                        ->whereNumber('user');
+                    Route::delete('/students/{user}', [AdminDashboardController::class, 'destroyStudent'])
                         ->whereNumber('user');
 
                     Route::get('/admins', [AdminDashboardController::class, 'admins']);

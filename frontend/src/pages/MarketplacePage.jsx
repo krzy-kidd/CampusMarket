@@ -10,6 +10,8 @@ const CONDITION_LABELS = {
   4: 'Poor',
 }
 
+const MAX_LISTING_IMAGES = 12
+
 function formatPrice(price) {
   return new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -38,11 +40,18 @@ function RatingSummary({ seller }) {
   )
 }
 
+function formatSoldTimeRemaining(soldUntil, currentTime) {
+  const remainingSeconds = Math.max(0, Math.ceil((Date.parse(soldUntil) - currentTime) / 1000))
+  const minutes = Math.floor(remainingSeconds / 60)
+  const seconds = String(remainingSeconds % 60).padStart(2, '0')
+  return `${minutes}:${seconds}`
+}
+
 async function csrfCookie() {
   await api.get('/sanctum/csrf-cookie')
 }
 
-function ListingCard({ listing }) {
+function ListingCard({ listing, currentTime }) {
   return (
     <article className="listing-card">
       <Link className="listing-card-image" to={`/listings/${listing.id}`}>
@@ -56,6 +65,11 @@ function ListingCard({ listing }) {
         <p className="listing-category">
           {[listing.category.parent_name, listing.category.name].filter(Boolean).join(' / ')}
         </p>
+        {listing.listing_status === 'sold' && (
+          <Badge className="listing-sold-badge" variant="warning">
+            Sold · disappears in {formatSoldTimeRemaining(listing.sold_until, currentTime)}
+          </Badge>
+        )}
         <h2><Link to={`/listings/${listing.id}`}>{listing.title}</Link></h2>
         <p className="listing-price">{formatPrice(listing.price)}</p>
         <p className="listing-meta">
@@ -197,6 +211,7 @@ export function MarketplacePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const queryString = searchParams.toString()
   const [listings, setListings] = useState([])
+  const [currentTime, setCurrentTime] = useState(() => Date.now())
   const [categories, setCategories] = useState([])
   const [categoryError, setCategoryError] = useState('')
   const [pagination, setPagination] = useState({
@@ -210,6 +225,7 @@ export function MarketplacePage() {
   const [filterError, setFilterError] = useState(false)
   const [loading, setLoading] = useState(true)
   const [reloadKey, setReloadKey] = useState(0)
+  const expiredListingIds = useRef(new Set())
 
   useEffect(() => {
     let active = true
@@ -245,6 +261,31 @@ export function MarketplacePage() {
       })
     return () => { active = false }
   }, [queryString, reloadKey])
+
+  useEffect(() => {
+    if (!listings.some((listing) => listing.listing_status === 'sold' && listing.sold_until)) return undefined
+
+    const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 1000)
+    return () => window.clearInterval(intervalId)
+  }, [listings])
+
+  useEffect(() => {
+    const hasNewlyExpiredListing = listings.some((listing) => {
+      if (
+        listing.listing_status !== 'sold'
+        || !listing.sold_until
+        || Date.parse(listing.sold_until) > currentTime
+        || expiredListingIds.current.has(listing.id)
+      ) {
+        return false
+      }
+
+      expiredListingIds.current.add(listing.id)
+      return true
+    })
+
+    if (hasNewlyExpiredListing) setReloadKey((key) => key + 1)
+  }, [currentTime, listings])
 
   function retry() {
     setError('')
@@ -290,6 +331,11 @@ export function MarketplacePage() {
   }
 
   const filters = getMarketplaceFilters(searchParams)
+  const visibleListings = listings.filter((listing) => (
+    listing.listing_status !== 'sold'
+    || !listing.sold_until
+    || Date.parse(listing.sold_until) > currentTime
+  ))
   const hasActiveFilters = ['search', 'category_id', 'subcategory_id', 'min_price', 'max_price', 'condition_rating']
     .some((key) => searchParams.has(key))
 
@@ -299,7 +345,7 @@ export function MarketplacePage() {
         <div>
           <p className="eyebrow">WMSU student marketplace</p>
           <h1>Find something useful.</h1>
-          <p>Explore available items shared by the WMSU community.</p>
+          <p>Explore items shared by the WMSU community. Recently sold items remain visible for 10 minutes.</p>
         </div>
         <div className="marketplace-heading-actions">
           <Link className="secondary-link" to="/my-listings">My listings</Link>
@@ -324,13 +370,15 @@ export function MarketplacePage() {
         </section>
       ) : loading ? (
         <p className="marketplace-loading" role="status">Loading available listings…</p>
-      ) : listings.length ? (
+      ) : visibleListings.length ? (
         <>
           <p className="marketplace-result-count" role="status">
             Showing {pagination.from}–{pagination.to} of {pagination.total} {pagination.total === 1 ? 'listing' : 'listings'}
           </p>
           <section className="listing-grid" aria-label="Available products">
-            {listings.map((listing) => <ListingCard key={listing.id} listing={listing} />)}
+            {visibleListings.map((listing) => (
+              <ListingCard key={listing.id} listing={listing} currentTime={currentTime} />
+            ))}
           </section>
           {pagination.last_page > 1 && (
             <nav className="marketplace-pagination" aria-label="Marketplace pages">
@@ -384,13 +432,15 @@ export function ListingDetailPage() {
   const navigate = useNavigate()
   const isPageActive = useRef(false)
   const [listing, setListing] = useState(null)
-  const [viewerId, setViewerId] = useState(null)
+  const [viewer, setViewer] = useState(null)
   const [viewerChecked, setViewerChecked] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-  const [messageText, setMessageText] = useState('')
+  const [messageText, setMessageText] = useState('Hi, is this item still available?')
   const [messageError, setMessageError] = useState('')
   const [sendingMessage, setSendingMessage] = useState(false)
+  const [purchaseOpen, setPurchaseOpen] = useState(false)
+  const [buying, setBuying] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const [reportReason, setReportReason] = useState('')
   const [reportDescription, setReportDescription] = useState('')
@@ -424,7 +474,7 @@ export function ListingDetailPage() {
     api.get('/api/auth/me')
       .then(({ data }) => {
         if (active) {
-          setViewerId(data.user.id)
+          setViewer(data.user)
           setViewerChecked(true)
         }
       })
@@ -460,6 +510,38 @@ export function ListingDetailPage() {
     } finally {
       setSendingMessage(false)
     }
+  }
+
+  async function startPurchase() {
+    if (!viewer) {
+      navigate('/login', { state: { returnTo: `/listings/${listingId}` } })
+      return
+    }
+
+    setMessageError('')
+    setBuying(true)
+    try {
+      await csrfCookie()
+      const { data } = await api.post(`/api/auth/listings/${listing.id}/purchase`)
+      navigate(`/transactions/${data.transaction.id}`)
+    } catch (requestError) {
+      if (requestError.response?.status === 401) {
+        navigate('/login', { state: { returnTo: `/listings/${listingId}` } })
+      } else {
+        setMessageError(getErrorMessage(requestError))
+      }
+    } finally {
+      setBuying(false)
+    }
+  }
+
+  function openPurchaseDialog() {
+    if (!viewer) {
+      navigate('/login', { state: { returnTo: `/listings/${listingId}` } })
+      return
+    }
+
+    setPurchaseOpen(true)
   }
 
   async function submitListingReport(event) {
@@ -532,6 +614,9 @@ export function ListingDetailPage() {
             {[listing.category.parent_name, listing.category.name].filter(Boolean).join(' / ')}
           </p>
           <h1>{listing.title}</h1>
+          {listing.listing_status === 'sold' && (
+            <Badge className="listing-sold-badge" variant="warning">Sold · recently</Badge>
+          )}
           <p className="listing-price">{formatPrice(listing.price)}</p>
           <p className="listing-meta">Condition: {CONDITION_LABELS[listing.condition_rating]}</p>
           <p className="listing-description">{listing.description}</p>
@@ -540,74 +625,108 @@ export function ListingDetailPage() {
             {listing.seller.is_verified && <Badge variant="success">Verified WMSU student</Badge>}
             <RatingSummary seller={listing.seller} />
           </div>
-          {messageError && <p className="form-error" role="alert">{messageError}</p>}
-          {viewerChecked && Number(listing.seller.id) !== Number(viewerId) && (
-            <>
-              <form className="listing-message-form" onSubmit={startConversation}>
-                <p>Contact the seller privately to ask about this listing.</p>
-                <FormField label="Your message">
-                  <TextArea
-                    name="message_text"
-                    value={messageText}
-                    onChange={(event) => setMessageText(event.target.value)}
-                    placeholder="Hi, is this item still available?"
-                    maxLength="2000"
-                    rows="3"
-                    required
-                  />
-                </FormField>
-                <Button type="submit" disabled={sendingMessage || !messageText.trim()}>
-                  {sendingMessage ? 'Opening conversation…' : 'Message seller'}
-                </Button>
-                <Button variant="ghost" onClick={() => setReportOpen(true)}>Report listing</Button>
-              </form>
-              <Modal
-                open={reportOpen}
-                onClose={() => {
-                  if (!sendingReport) closeReport()
-                }}
-                title={reportSubmitted ? 'Report submitted' : 'Report this listing'}
-                actions={!reportSubmitted && (
-                  <>
-                    <Button variant="secondary" onClick={closeReport} disabled={sendingReport}>Cancel</Button>
-                    <Button type="submit" form="listing-report-form" disabled={sendingReport || !reportReason || !reportDescription.trim()}>
-                      {sendingReport ? 'Submitting…' : 'Submit report'}
-                    </Button>
-                  </>
-                )}
-              >
-                {reportSubmitted ? (
-                  <p role="status">Thank you. Your report has been sent to the admin team for review.</p>
-                ) : (
-                  <form id="listing-report-form" onSubmit={submitListingReport}>
-                    <p>Use this form to flag a listing that may violate campus marketplace rules. Admins will review your report.</p>
-                    <FormField label="Reason">
-                      <SelectInput value={reportReason} onChange={(event) => setReportReason(event.target.value)} required>
-                        <option value="">Choose a reason</option>
-                        <option value="Spam or misleading listing">Spam or misleading listing</option>
-                        <option value="Prohibited item">Prohibited item</option>
-                        <option value="Inappropriate content">Inappropriate content</option>
-                        <option value="Safety concern">Safety concern</option>
-                        <option value="Other">Other</option>
-                      </SelectInput>
-                    </FormField>
-                    <FormField label="Details" hint="Do not include private contact or account information.">
-                      <TextArea
-                        value={reportDescription}
-                        onChange={(event) => setReportDescription(event.target.value)}
-                        maxLength="5000"
-                        rows="5"
-                        required
-                      />
-                    </FormField>
-                    {reportError && <p className="form-error" role="alert">{reportError}</p>}
-                  </form>
-                )}
-                {reportSubmitted && <Button onClick={closeReport}>Done</Button>}
-              </Modal>
-            </>
+          {messageError && !purchaseOpen && <p className="form-error" role="alert">{messageError}</p>}
+          {viewerChecked && Number(listing.seller.id) !== Number(viewer?.id) && (
+            listing.listing_status === 'available' ? (
+              <>
+                <section className="listing-purchase-action" aria-labelledby="listing-purchase-heading">
+                  <h2 id="listing-purchase-heading">Ready to buy?</h2>
+                  <p>Start a purchase request at the listed fixed price. The item is reserved after the seller responds.</p>
+                  <Button onClick={openPurchaseDialog} disabled={buying}>
+                    Buy now · {formatPrice(listing.price)}
+                  </Button>
+                </section>
+                <form className="listing-message-form" onSubmit={startConversation}>
+                  <p>Have a question first? Message the seller before starting a purchase.</p>
+                  <FormField label="Your message">
+                    <TextArea
+                      name="message_text"
+                      value={messageText}
+                      onChange={(event) => setMessageText(event.target.value)}
+                      placeholder="Hi, is this item still available?"
+                      maxLength="2000"
+                      rows="3"
+                      required
+                    />
+                  </FormField>
+                  <Button type="submit" disabled={sendingMessage || !messageText.trim()}>
+                    {sendingMessage ? 'Opening conversation…' : 'Message seller'}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setReportOpen(true)}>Report listing</Button>
+                </form>
+                <Modal
+                  open={purchaseOpen}
+                  onClose={() => {
+                    if (!buying) setPurchaseOpen(false)
+                  }}
+                  title="Start purchase request?"
+                  actions={(
+                    <>
+                      <Button variant="secondary" onClick={() => setPurchaseOpen(false)} disabled={buying}>Not yet</Button>
+                      <Button onClick={startPurchase} disabled={buying}>
+                        {buying ? 'Starting request…' : 'Confirm purchase request'}
+                      </Button>
+                    </>
+                  )}
+                >
+                  <p>
+                    This creates a purchase request for <strong>{formatPrice(listing.price)}</strong>. No payment is taken.
+                    You and the seller will confirm the same meetup details before meeting.
+                  </p>
+                  {messageError && <p className="form-error" role="alert">{messageError}</p>}
+                </Modal>
+                <Modal
+                  open={reportOpen}
+                  onClose={() => {
+                    if (!sendingReport) closeReport()
+                  }}
+                  title={reportSubmitted ? 'Report submitted' : 'Report this listing'}
+                  actions={!reportSubmitted && (
+                    <>
+                      <Button variant="secondary" onClick={closeReport} disabled={sendingReport}>Cancel</Button>
+                      <Button type="submit" form="listing-report-form" disabled={sendingReport || !reportReason || !reportDescription.trim()}>
+                        {sendingReport ? 'Submitting…' : 'Submit report'}
+                      </Button>
+                    </>
+                  )}
+                >
+                  {reportSubmitted ? (
+                    <p role="status">Thank you. Your report has been sent to the admin team for review.</p>
+                  ) : (
+                    <form id="listing-report-form" onSubmit={submitListingReport}>
+                      <p>Use this form to flag a listing that may violate campus marketplace rules. Admins will review your report.</p>
+                      <FormField label="Reason">
+                        <SelectInput value={reportReason} onChange={(event) => setReportReason(event.target.value)} required>
+                          <option value="">Choose a reason</option>
+                          <option value="Spam or misleading listing">Spam or misleading listing</option>
+                          <option value="Prohibited item">Prohibited item</option>
+                          <option value="Inappropriate content">Inappropriate content</option>
+                          <option value="Safety concern">Safety concern</option>
+                          <option value="Other">Other</option>
+                        </SelectInput>
+                      </FormField>
+                      <FormField label="Details" hint="Do not include private contact or account information.">
+                        <TextArea
+                          value={reportDescription}
+                          onChange={(event) => setReportDescription(event.target.value)}
+                          maxLength="5000"
+                          rows="5"
+                          required
+                        />
+                      </FormField>
+                      {reportError && <p className="form-error" role="alert">{reportError}</p>}
+                    </form>
+                  )}
+                  {reportSubmitted && <Button onClick={closeReport}>Done</Button>}
+                </Modal>
+              </>
+            ) : (
+              <p className="status-detail" role="status">
+                This item has been sold. Its marketplace listing will be removed after the 10-minute visibility period.
+              </p>
+            )
           )}
-          {viewerChecked && Number(listing.seller.id) === Number(viewerId) && (
+          {viewerChecked && Number(listing.seller.id) === Number(viewer?.id) && (
             <p className="status-detail">This is your listing.</p>
           )}
         </div>
@@ -665,6 +784,7 @@ export function MyListingsPage() {
       } else {
         await api.post(`/api/auth/listings/${listing.id}/relist`)
       }
+      window.dispatchEvent(new CustomEvent('campustrade:listings-updated'))
       setMessage(action === 'archive' ? 'Listing archived.' : 'Listing relisted.')
     } catch (requestError) {
       setError(getErrorMessage(requestError))
@@ -703,9 +823,15 @@ export function MyListingsPage() {
         <section className="seller-listing-grid">
           {listings.map((listing) => (
             <article className="seller-listing" key={listing.id}>
-              <Link className="seller-listing-image" to={`/listings/${listing.id}`}>
-                {listing.images[0] ? <img src={listing.images[0].url} alt={listing.title} /> : <span>No photo</span>}
-              </Link>
+              {listing.listing_status === 'available' ? (
+                <Link className="seller-listing-image" to={`/listings/${listing.id}`}>
+                  {listing.images[0] ? <img src={listing.images[0].url} alt={listing.title} /> : <span>No photo</span>}
+                </Link>
+              ) : (
+                <div className="seller-listing-image">
+                  {listing.images[0] ? <img src={listing.images[0].url} alt={listing.title} /> : <span>No photo</span>}
+                </div>
+              )}
               <div className="seller-listing-info">
                 <Badge variant={
                   listing.listing_status === 'available'
@@ -791,10 +917,12 @@ export function ListingFormPage() {
   const [retryKey, setRetryKey] = useState(0)
   const [selectedPhotos, setSelectedPhotos] = useState([])
   const imageInputRef = useRef(null)
+  const selectedPhotoUrlsRef = useRef(new Set())
 
   useEffect(() => {
-    return () => selectedPhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl))
-  }, [selectedPhotos])
+    const selectedPhotoUrls = selectedPhotoUrlsRef.current
+    return () => selectedPhotoUrls.forEach((url) => URL.revokeObjectURL(url))
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -850,27 +978,29 @@ export function ListingFormPage() {
 
   function selectPhotos(files) {
     const photos = Array.from(files || [])
+    if (photos.length === 0) return
+
     const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
-    const remainingImageCount = existingImages.length - removeImageIds.length
+    const remainingImageCount = existingImages.length - removeImageIds.length + selectedPhotos.length
     const validationMessage = photos.some((file) => !allowedTypes.has(file.type))
       ? 'Choose JPG, PNG, or WebP photos only.'
       : photos.some((file) => file.size > 5 * 1024 * 1024)
         ? 'Each photo must be 5 MB or smaller.'
-        : remainingImageCount + photos.length > 5
-          ? 'A listing can have no more than 5 photos in total.'
+        : remainingImageCount + photos.length > MAX_LISTING_IMAGES
+          ? `A listing can have no more than ${MAX_LISTING_IMAGES} photos in total.`
           : ''
 
     if (validationMessage) {
-      if (imageInputRef.current) imageInputRef.current.value = ''
-      setSelectedPhotos([])
       setError(validationMessage)
       return
     }
 
-    setSelectedPhotos(photos.map((file) => ({
-      file,
-      previewUrl: URL.createObjectURL(file),
-    })))
+    const newPhotos = photos.map((file) => {
+      const previewUrl = URL.createObjectURL(file)
+      selectedPhotoUrlsRef.current.add(previewUrl)
+      return { file, previewUrl }
+    })
+    setSelectedPhotos((current) => [...current, ...newPhotos])
     setError('')
   }
 
@@ -878,8 +1008,8 @@ export function ListingFormPage() {
     event.preventDefault()
     const remainingImageCount = existingImages.length - removeImageIds.length
     const totalImageCount = remainingImageCount + selectedPhotos.length
-    if (totalImageCount < 1 || totalImageCount > 5) {
-      setError('A listing must have between 1 and 5 photos. Remove a current photo or choose fewer new photos.')
+    if (totalImageCount < 1 || totalImageCount > MAX_LISTING_IMAGES) {
+      setError(`A listing must have between 1 and ${MAX_LISTING_IMAGES} photos. Add at least one photo, remove a current photo, or choose fewer new photos.`)
       return
     }
     if (selectedPhotos.some(({ file }) => file.size > 5 * 1024 * 1024)) {
@@ -938,7 +1068,6 @@ export function ListingFormPage() {
 
   return (
     <main className="marketplace-shell listing-form-shell">
-      <p><Link className="text-link" to={isEditing ? '/my-listings' : '/marketplace'}>← {isEditing ? 'My listings' : 'Marketplace'}</Link></p>
       <section className="listing-form-card">
         <p className="eyebrow">Fixed-price selling</p>
         <h1>{isEditing ? 'Edit listing' : 'Create a listing'}</h1>
@@ -956,7 +1085,7 @@ export function ListingFormPage() {
         <form className="listing-form" onSubmit={submit}>
           <label>
             Product title
-            <input name="title" value={form.title} onChange={update} required maxLength="200" />
+            <input name="title" value={form.title} onChange={update} required maxLength="120" />
           </label>
           <label>
             Category or subcategory
@@ -971,12 +1100,34 @@ export function ListingFormPage() {
           </label>
           <label>
             Description
-            <textarea name="description" value={form.description} onChange={update} required maxLength="10000" rows="6" />
+            <textarea name="description" value={form.description} onChange={update} required maxLength="800" rows="6" />
           </label>
           <div className="listing-form-row">
             <label>
               Fixed price (PHP)
-              <input name="price" type="number" value={form.price} onChange={update} min="0.01" max="99999999.99" step="0.01" required />
+              <span className="listing-price-controls">
+                <button
+                  type="button"
+                  aria-label="Decrease price by 1 peso"
+                  onClick={() => setForm((current) => ({
+                    ...current,
+                    price: (Math.max(1, Math.round((Number(current.price) || 0) * 100) - 100) / 100).toFixed(2),
+                  }))}
+                >
+                  −₱1
+                </button>
+                <input name="price" type="number" value={form.price} onChange={update} min="0.01" max="99999999.99" step="0.01" required />
+                <button
+                  type="button"
+                  aria-label="Increase price by 10 pesos"
+                  onClick={() => setForm((current) => ({
+                    ...current,
+                    price: ((Math.round((Number(current.price) || 0) * 100) + 1000) / 100).toFixed(2),
+                  }))}
+                >
+                  +₱10
+                </button>
+              </span>
             </label>
             <label>
               Condition
@@ -1001,18 +1152,21 @@ export function ListingFormPage() {
             </fieldset>
           )}
           <label>
-            {isEditing ? 'Add photos (optional)' : 'Product photos (1–5 required)'}
+            {isEditing ? 'Add photos' : `Product photos (1–${MAX_LISTING_IMAGES} required)`}
             <input
               ref={imageInputRef}
               name="images"
               type="file"
               accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
               multiple
-              required={!isEditing}
-              onChange={(event) => selectPhotos(event.target.files)}
+              aria-required={!isEditing}
+              onChange={(event) => {
+                selectPhotos(event.target.files)
+                event.target.value = ''
+              }}
             />
           </label>
-          <p className="listing-form-hint">Upload clear photos of the actual item. JPG, PNG, or WebP; maximum 5 MB per photo and 5 photos total.</p>
+          <p className="listing-form-hint">Select multiple photos at once, or add more later. At least 1 and no more than {MAX_LISTING_IMAGES} photos are required per listing. JPG, PNG, or WebP; maximum 5 MB per photo.</p>
           {selectedPhotos.length > 0 && (
             <section className="selected-image-preview" aria-label="Selected photo previews">
               <div className="selected-image-preview-heading">
@@ -1021,6 +1175,8 @@ export function ListingFormPage() {
                   type="button"
                   className="text-button"
                   onClick={() => {
+                    selectedPhotoUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+                    selectedPhotoUrlsRef.current.clear()
                     setSelectedPhotos([])
                     if (imageInputRef.current) imageInputRef.current.value = ''
                   }}

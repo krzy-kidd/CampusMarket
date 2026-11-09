@@ -1,8 +1,53 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Badge, Button, Card, FormField, TextInput } from '../components/ui.jsx'
+import { Badge, Button, Card, FormField, SelectInput, TextInput } from '../components/ui.jsx'
 import api from '../lib/api.js'
 import { safeInternalRoute } from '../lib/navigation.js'
+import CorFileViewer from '../components/CorFileViewer.jsx'
+
+const COLLEGES = [
+  'College of Engineering & Technology',
+  'College of Nursing & Health Sciences',
+  'College of Teacher Education',
+  'College of Liberal Arts',
+  'College of Science and Mathematics',
+  'College of Computing Studies',
+  'College of Architecture',
+  'College of Agriculture & Forestry',
+  'College of Criminology',
+  'College of Social Work & Community Development',
+  'College of Asian and Islamic Studies',
+  'College of Home Economics',
+  'College of Sports Science & Physical Education',
+  'College of Law',
+  'College of Medicine',
+]
+
+const GRADUATE_COLLEGES = [
+  'College of Engineering & Technology',
+  'College of Nursing & Health Sciences',
+  'College of Teacher Education',
+  'College of Liberal Arts',
+  'College of Science and Mathematics',
+  'College of Agriculture & Forestry',
+  'College of Social Work & Community Development',
+  'College of Law',
+  'College of Medicine',
+  'College of Public Administration & Development Studies',
+]
+
+const YEAR_LEVELS = [
+  'First year',
+  'Second year',
+  'Third year',
+  'Fourth year',
+  'Fifth year',
+]
+
+const STUDENT_LEVELS = [
+  { value: 'undergraduate', label: 'Undergraduate' },
+  { value: 'graduate', label: 'Graduate' },
+]
 
 const VERIFICATION_STATUSES = {
   not_configured: {
@@ -33,11 +78,11 @@ const VERIFICATION_STATUSES = {
 }
 
 async function fetchAccountData() {
-  const [{ data: me }, { data: status }] = await Promise.all([
-    api.get('/api/auth/me'),
-    api.get('/api/auth/verification/status'),
-  ])
-  return { account: me.user, verification: status }
+  const { data: me } = await api.get('/api/auth/me')
+  if (me.user.admin_role) return { account: me.user, verification: null }
+
+  const { data: verification } = await api.get('/api/auth/verification/status')
+  return { account: me.user, verification }
 }
 
 function errorMessage(error) {
@@ -131,9 +176,8 @@ export function AuthPage({ mode }) {
     first_name: '',
     last_name: '',
     college: '',
-    course: '',
+    student_level: '',
     year_level: '',
-    section: '',
     email: '',
     password: '',
     password_confirmation: '',
@@ -142,12 +186,41 @@ export function AuthPage({ mode }) {
   const [busy, setBusy] = useState(false)
 
   function update(event) {
-    setForm({ ...form, [event.target.name]: event.target.value })
+    const { name, value } = event.target
+    const updatedForm = { ...form, [name]: value }
+
+    if (name === 'student_level') {
+      const availableColleges = value === 'graduate' ? GRADUATE_COLLEGES : COLLEGES
+      if (!availableColleges.includes(form.college)) {
+        updatedForm.college = ''
+      }
+    }
+
+    if (name === 'student_level' && value === 'graduate') {
+      updatedForm.year_level = ''
+    }
+
+    setForm(updatedForm)
   }
 
   async function submit(event) {
     event.preventDefault()
     setError('')
+
+    if (isRegister) {
+      const studentIdNumber = form.student_id_number.replace('-', '')
+      const wmsuEmailNumber = form.email.trim().split('@')[0].match(/^[a-z]+(\d{9})$/i)?.[1]
+
+      if (!/^\d{4}-?\d{5}$/.test(form.student_id_number)) {
+        setError('Enter your student ID as 2027-02829 or 202702829.')
+        return
+      }
+
+      if (wmsuEmailNumber !== studentIdNumber) {
+        setError('Your student ID number must match the number in your WMSU email address.')
+        return
+      }
+    }
 
     if (isRegister && form.password !== form.password_confirmation) {
       setError('The password confirmation does not match.')
@@ -157,11 +230,13 @@ export function AuthPage({ mode }) {
     setBusy(true)
     try {
       await csrfCookie()
+      const registrationForm = { ...form }
+      delete registrationForm.student_level
       const { data } = await api.post(
         `/api/auth/${isRegister ? 'register' : 'login'}`,
-        form,
+        isRegister ? registrationForm : form,
       )
-      const destination = safeInternalRoute(location.state?.returnTo)
+      const destination = safeInternalRoute(location.state?.returnTo, '/marketplace')
       navigate(destination, { replace: true, state: { notice: data.message } })
     } catch (requestError) {
       setError(errorMessage(requestError))
@@ -183,8 +258,11 @@ export function AuthPage({ mode }) {
         <form className="account-form auth-form" onSubmit={submit}>
           {isRegister && (
             <>
-              <FormField label="Student ID number">
-                <TextInput name="student_id_number" value={form.student_id_number} onChange={update} required maxLength="50" autoComplete="off" />
+              <FormField
+                label="Student ID number"
+                hint="Use 2027-02829 or 202702829. The 9 digits must match the number in your WMSU email address."
+              >
+                <TextInput name="student_id_number" value={form.student_id_number} onChange={update} required maxLength="10" autoComplete="off" placeholder="2027-02829" />
               </FormField>
               <div className="form-grid">
                 <FormField label="First name">
@@ -194,22 +272,39 @@ export function AuthPage({ mode }) {
                   <TextInput name="last_name" value={form.last_name} onChange={update} required maxLength="100" autoComplete="family-name" />
                 </FormField>
               </div>
-              <div className="form-grid">
-                <FormField label="College / school">
-                  <TextInput name="college" value={form.college} onChange={update} maxLength="150" autoComplete="organization" />
-                </FormField>
-                <FormField label="Course / program">
-                  <TextInput name="course" value={form.course} onChange={update} maxLength="150" />
-                </FormField>
-              </div>
-              <div className="form-grid">
+              <FormField label="Student level">
+                <SelectInput name="student_level" value={form.student_level} onChange={update} required>
+                  <option value="">Select your student level</option>
+                  {STUDENT_LEVELS.map((studentLevel) => (
+                    <option key={studentLevel.value} value={studentLevel.value}>{studentLevel.label}</option>
+                  ))}
+                </SelectInput>
+              </FormField>
+              <FormField label="College">
+                <SelectInput
+                  name="college"
+                  value={form.college}
+                  onChange={update}
+                  disabled={!form.student_level}
+                >
+                  <option value="">
+                    {form.student_level ? 'Select your college' : 'Select student level first'}
+                  </option>
+                  {(form.student_level === 'graduate' ? GRADUATE_COLLEGES : COLLEGES).map((college) => (
+                    <option key={college} value={college}>{college}</option>
+                  ))}
+                </SelectInput>
+              </FormField>
+              {form.student_level === 'undergraduate' && (
                 <FormField label="Year level">
-                  <TextInput name="year_level" value={form.year_level} onChange={update} maxLength="25" />
+                  <SelectInput name="year_level" value={form.year_level} onChange={update} required>
+                    <option value="">Select your year level</option>
+                    {YEAR_LEVELS.map((yearLevel) => (
+                      <option key={yearLevel} value={yearLevel}>{yearLevel}</option>
+                    ))}
+                  </SelectInput>
                 </FormField>
-                <FormField label="Section">
-                  <TextInput name="section" value={form.section} onChange={update} maxLength="50" />
-                </FormField>
-              </div>
+              )}
             </>
           )}
           <FormField
@@ -545,6 +640,22 @@ export function AccountPage() {
     }
   }
 
+  async function verifyEmailLocally() {
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      await csrfCookie()
+      const { data } = await api.post('/api/auth/email/verify-local')
+      setMessage(data.message)
+      await loadAccount()
+    } catch (requestError) {
+      setError(errorMessage(requestError))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function submitCor(event) {
     event.preventDefault()
     const form = event.currentTarget
@@ -622,20 +733,20 @@ export function AccountPage() {
   return (
     <main className="page-shell verification-page">
       <section className="status-card verification-account-card">
-        <p className="eyebrow">Student account</p>
+        <p className="eyebrow">{account.admin_role ? 'Administrator account' : 'Student account'}</p>
         <h1>Welcome, {account.first_name}</h1>
         <p className="status-detail verification-account-email">{account.email}</p>
         <div className="status-actions">
-          <Link className="primary-link" to="/dashboard">Open student dashboard</Link>
-        </div>
-        {account.admin_role && (
-          <div className="status-actions">
+          {!account.admin_role && (
+            <Link className="primary-link" to="/dashboard">Open student dashboard</Link>
+          )}
+          {account.admin_role && (
             <Link className="primary-link" to="/admin">Admin dashboard</Link>
-          </div>
-        )}
+          )}
+        </div>
         {error && <p className="form-error" role="alert">{error}</p>}
         {message && <p className="form-message" role="status">{message}</p>}
-        <Card className="verification-panel email-verification-panel">
+        {!account.admin_role && <Card className="verification-panel email-verification-panel">
           <div className="verification-panel-heading">
             <div>
               <p className="eyebrow">Step 1</p>
@@ -651,12 +762,24 @@ export function AccountPage() {
               : 'Verify your WMSU email before submitting your Certificate of Registration.'}
           </p>
           {!account.email_verified && (
-            <Button type="button" onClick={sendVerificationEmail} disabled={busy}>
-              {busy ? 'Please wait…' : 'Resend verification email'}
-            </Button>
+            <div className="status-actions">
+              <Button type="button" onClick={sendVerificationEmail} disabled={busy}>
+                {busy ? 'Please wait…' : 'Resend verification email'}
+              </Button>
+              {import.meta.env.DEV && !account.admin_role && (
+                <Button type="button" variant="secondary" onClick={verifyEmailLocally} disabled={busy}>
+                  Verify locally (development only)
+                </Button>
+              )}
+            </div>
           )}
-        </Card>
-        <Card className="verification-panel cor-verification-panel">
+          {import.meta.env.DEV && !account.email_verified && !account.admin_role && (
+            <p className="verification-year-label">
+              Local testing shortcut only. It does not verify your actual WMSU email.
+            </p>
+          )}
+        </Card>}
+        {!account.admin_role && <Card className="verification-panel cor-verification-panel">
           <div className="verification-panel-heading">
             <div>
               <p className="eyebrow">Step 2 · {verification?.academic_year || 'Current academic year'}</p>
@@ -716,19 +839,12 @@ export function AccountPage() {
                       <p>{attempt.admin_notes}</p>
                     </div>
                   )}
-                  <a
-                    className="text-link"
-                    href={`${api.defaults.baseURL}/api/auth/verification-attempts/${attempt.id}/file`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    View submitted document
-                  </a>
+                  <CorFileViewer attemptId={attempt.id} />
                 </li>
               ))}
             </ol>
           )}
-        </Card>
+        </Card>}
         <div className="verification-account-actions">
           <Button type="button" variant="secondary" onClick={logout} disabled={busy}>Sign out</Button>
         </div>

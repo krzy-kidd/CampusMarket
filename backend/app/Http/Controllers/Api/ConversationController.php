@@ -40,8 +40,17 @@ class ConversationController extends Controller
             ->orderByDesc('updated_at')
             ->orderByDesc('id')
             ->cursorPaginate(30, ['*'], 'cursor', $validated['cursor'] ?? null);
+        $unreadCount = Message::query()
+            ->whereHas('conversation', fn (Builder $query) => $query
+                ->where(fn (Builder $participants) => $participants
+                    ->where('buyer_id', $user->id)
+                    ->orWhere('seller_id', $user->id)))
+            ->where('sender_id', '<>', $user->id)
+            ->whereNull('read_at')
+            ->count();
 
         return response()->json([
+            'unread_count' => $unreadCount,
             'conversations' => $conversations->getCollection()
                 ->map(fn (Conversation $conversation): array => [
                     'id' => $conversation->id,

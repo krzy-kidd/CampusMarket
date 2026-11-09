@@ -1,4 +1,5 @@
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import SiteHeader from './components/SiteHeader.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import RequireAccount from './components/RequireAccount.jsx'
@@ -114,6 +115,70 @@ function HomePage() {
   )
 }
 
+function PageBack({ pathname }) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const navigationType = useNavigationType()
+  const historyStack = useRef({
+    entries: [{ key: location.key }],
+    index: 0,
+  })
+  const fallbackRoutes = [
+    [/^\/listings\/new$/, '/marketplace'],
+    [/^\/listings\/[^/]+\/edit$/, '/my-listings'],
+    [/^\/listings\/[^/]+$/, '/marketplace'],
+    [/^\/messages\/[^/]+$/, '/messages'],
+    [/^\/transactions\/[^/]+$/, '/transactions'],
+    [/^\/reset-password$/, '/forgot-password'],
+    [/^\/(login|register|forgot-password|verify-email)$/, '/'],
+    [/^\/marketplace$/, '/dashboard'],
+    [/^\/admin$/, '/account'],
+    [/^\/health$/, '/'],
+  ]
+  const fallback = fallbackRoutes.find(([route]) => route.test(pathname))?.[1] || '/dashboard'
+
+  useEffect(() => {
+    const stack = historyStack.current
+    const currentEntry = stack.entries[stack.index]
+    if (currentEntry?.key === location.key) return
+
+    if (navigationType === 'PUSH') {
+      stack.entries = stack.entries.slice(0, stack.index + 1)
+      stack.entries.push({ key: location.key })
+      stack.index += 1
+    } else if (navigationType === 'REPLACE') {
+      stack.entries[stack.index] = { key: location.key }
+    } else {
+      const previousIndex = stack.entries.findIndex(({ key }) => key === location.key)
+      if (previousIndex >= 0) {
+        stack.index = previousIndex
+      } else {
+        stack.entries = [{ key: location.key }]
+        stack.index = 0
+      }
+    }
+  }, [location.key, navigationType])
+
+  if (pathname === '/') return null
+
+  return (
+    <button
+      className="page-back"
+      type="button"
+      aria-label="Go back"
+      title="Go back"
+      onClick={() => {
+        if (historyStack.current.index > 0) navigate(-1)
+        else navigate(fallback)
+      }}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M19 12H5m7 7-7-7 7-7" />
+      </svg>
+    </button>
+  )
+}
+
 function App() {
   const { pathname } = useLocation()
   const isLanding = pathname === '/'
@@ -126,19 +191,26 @@ function App() {
         variant={isLanding ? 'landing' : isAdmin ? 'admin' : isAuth ? 'auth' : 'default'}
         pathname={pathname}
       />
+      <PageBack pathname={pathname} />
       <ErrorBoundary key={pathname}>
         <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/marketplace" element={<MarketplacePage />} />
-          <Route path="/listings/:listingId" element={<ListingDetailPage />} />
+          <Route element={<RequireAccount studentOnly allowGuest redirectAuthenticated />}>
+            <Route path="/" element={<HomePage />} />
+          </Route>
+          <Route element={<RequireAccount studentOnly allowGuest />}>
+            <Route path="/marketplace" element={<MarketplacePage />} />
+            <Route path="/listings/:listingId" element={<ListingDetailPage />} />
+            <Route path="/login" element={<AuthPage mode="login" />} />
+            <Route path="/register" element={<AuthPage mode="register" />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
+          </Route>
           <Route path="/health" element={<HealthPage />} />
-          <Route path="/login" element={<AuthPage mode="login" />} />
-          <Route path="/register" element={<AuthPage mode="register" />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/verify-email" element={<VerifyEmailPage />} />
-          <Route element={<RequireAccount />}>
+          <Route element={<RequireAccount studentOnly />}>
             <Route path="/dashboard" element={<DashboardPage />} />
+          </Route>
+          <Route element={<RequireAccount studentOnly />}>
             <Route path="/listings/new" element={<ListingFormPage />} />
             <Route path="/listings/:listingId/edit" element={<ListingFormPage />} />
             <Route path="/my-listings" element={<MyListingsPage />} />
@@ -147,6 +219,8 @@ function App() {
             <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/transactions/:transactionId" element={<TransactionDetailPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
+          </Route>
+          <Route element={<RequireAccount />}>
             <Route path="/account" element={<AccountPage />} />
           </Route>
           <Route element={<RequireAccount adminOnly />}>

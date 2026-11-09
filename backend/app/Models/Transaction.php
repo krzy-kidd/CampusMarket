@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Transaction extends Model
 {
-    private const ACTIVE_STATUSES = [
+    public const ACTIVE_STATUSES = [
         'pending_agreement',
         'meetup_arranged',
         'disputed',
@@ -36,6 +36,9 @@ class Transaction extends Model
         'seller_unlock_requested_at',
         'buyer_unlock_response_deadline',
         'cancellation_reason',
+        'cancellation_requested_by',
+        'cancellation_requested_at',
+        'cancellation_request_reason',
         'completed_at',
     ];
 
@@ -51,6 +54,7 @@ class Transaction extends Model
             'seller_completion_confirmed_at' => 'datetime',
             'seller_unlock_requested_at' => 'datetime',
             'buyer_unlock_response_deadline' => 'datetime',
+            'cancellation_requested_at' => 'datetime',
             'completed_at' => 'datetime',
         ];
     }

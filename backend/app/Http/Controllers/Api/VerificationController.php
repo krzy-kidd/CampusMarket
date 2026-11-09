@@ -18,6 +18,8 @@ class VerificationController extends Controller
 {
     public function status(Request $request): JsonResponse
     {
+        $this->ensureStudentAccount($request);
+
         $academicYear = AcademicYear::query()->where('is_current', true)->first();
 
         if (! $academicYear) {
@@ -45,6 +47,8 @@ class VerificationController extends Controller
 
     public function history(Request $request): JsonResponse
     {
+        $this->ensureStudentAccount($request);
+
         $attempts = VerificationAttempt::query()
             ->whereHas('verification', fn ($query) => $query->where('user_id', $request->user()->id))
             ->with('verification.academicYear:id,academic_year')
@@ -56,6 +60,8 @@ class VerificationController extends Controller
 
     public function submit(Request $request): JsonResponse
     {
+        $this->ensureStudentAccount($request);
+
         $academicYear = AcademicYear::query()->where('is_current', true)->first();
 
         if (! $academicYear) {
@@ -158,6 +164,15 @@ class VerificationController extends Controller
             'cor-document.'.pathinfo($attempt->cor_file_path, PATHINFO_EXTENSION),
             ['Cache-Control' => 'private, no-store'],
             'inline',
+        );
+    }
+
+    private function ensureStudentAccount(Request $request): void
+    {
+        abort_if(
+            $request->user()->admin()->exists(),
+            403,
+            'Administrator accounts do not use student COR verification.',
         );
     }
 }
