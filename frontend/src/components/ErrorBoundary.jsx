@@ -13,7 +13,7 @@ export default class ErrorBoundary extends Component {
       return (
         <main className="page-shell">
           <section className="status-card" aria-labelledby="app-error-title">
-            <p className="eyebrow">CampusTrade</p>
+            <p className="eyebrow">RECREO</p>
             <h1 id="app-error-title">This page ran into a problem</h1>
             <p className="status-detail">Refresh the page to try again, or return to the home page.</p>
             <div className="status-actions">

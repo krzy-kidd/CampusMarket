@@ -284,7 +284,7 @@ export function TransactionDetailPage() {
       .then(({ data }) => {
         if (!active) return
         setTransaction(data.transaction)
-        window.dispatchEvent(new CustomEvent('campustrade:transactions-updated'))
+        window.dispatchEvent(new CustomEvent('recreo:transactions-updated'))
         setMeetup({
           meetup_date: data.transaction.meetup_date || '',
           meetup_time: data.transaction.meetup_time || '',
@@ -327,7 +327,7 @@ export function TransactionDetailPage() {
         payload,
       )
       setTransaction(data.transaction)
-      window.dispatchEvent(new CustomEvent('campustrade:transactions-updated'))
+      window.dispatchEvent(new CustomEvent('recreo:transactions-updated'))
       setMeetup({
         meetup_date: data.transaction.meetup_date || '',
         meetup_time: data.transaction.meetup_time || '',
@@ -357,7 +357,7 @@ export function TransactionDetailPage() {
     setError('')
     try {
       await api.post(`/api/auth/transactions/${transactionId}/hide-from-history`)
-      window.dispatchEvent(new CustomEvent('campustrade:transactions-updated'))
+      window.dispatchEvent(new CustomEvent('recreo:transactions-updated'))
       navigate('/transactions', { replace: true })
     } catch (requestError) {
       if (requestError.response?.status === 401) {
@@ -793,7 +793,7 @@ export function TransactionDetailPage() {
             <ol>
               {transaction.events.map((event) => (
                 <li key={event.id}>
-                  <strong>{event.actor ? `${event.actor.first_name} ${event.actor.last_name}` : 'CampusTrade'}</strong>
+                  <strong>{event.actor ? `${event.actor.first_name} ${event.actor.last_name}` : 'RECREO'}</strong>
                   <p>{event.event_description}</p>
                   <time dateTime={event.created_at}>{formatDateTime(event.created_at)}</time>
                 </li>

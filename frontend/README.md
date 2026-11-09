@@ -1,4 +1,4 @@
-# CampusTrade frontend
+# RECREO frontend
 
 The frontend is a React application built with Vite, React Router, and Axios.
 During local development, Vite proxies `/api` and `/sanctum` to Laravel so the

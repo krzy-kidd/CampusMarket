@@ -48,7 +48,7 @@ function HealthPage() {
   return (
     <main className="page-shell">
       <section className="status-card" aria-labelledby="status-title">
-        <p className="eyebrow">CampusTrade services</p>
+        <p className="eyebrow">RECREO services</p>
         <h1 id="status-title">System status</h1>
         <p
           className={`status-indicator ${isHealthy ? 'is-healthy' : ''} ${!isChecking && !isHealthy ? 'is-error' : ''}`}

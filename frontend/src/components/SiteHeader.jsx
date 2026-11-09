@@ -74,26 +74,26 @@ export default function SiteHeader({ variant = 'default', pathname = '' }) {
     loadNavigationSummary()
     const intervalId = window.setInterval(loadNavigationSummary, 60000)
     window.addEventListener('focus', loadNavigationSummary)
-    window.addEventListener('campustrade:notifications-updated', updateUnreadCount)
-    window.addEventListener('campustrade:messages-updated', loadNavigationSummary)
-    window.addEventListener('campustrade:transactions-updated', loadNavigationSummary)
-    window.addEventListener('campustrade:listings-updated', loadNavigationSummary)
+    window.addEventListener('recreo:notifications-updated', updateUnreadCount)
+    window.addEventListener('recreo:messages-updated', loadNavigationSummary)
+    window.addEventListener('recreo:transactions-updated', loadNavigationSummary)
+    window.addEventListener('recreo:listings-updated', loadNavigationSummary)
 
     return () => {
       active = false
       window.clearInterval(intervalId)
       window.removeEventListener('focus', loadNavigationSummary)
-      window.removeEventListener('campustrade:notifications-updated', updateUnreadCount)
-      window.removeEventListener('campustrade:messages-updated', loadNavigationSummary)
-      window.removeEventListener('campustrade:transactions-updated', loadNavigationSummary)
-      window.removeEventListener('campustrade:listings-updated', loadNavigationSummary)
+      window.removeEventListener('recreo:notifications-updated', updateUnreadCount)
+      window.removeEventListener('recreo:messages-updated', loadNavigationSummary)
+      window.removeEventListener('recreo:transactions-updated', loadNavigationSummary)
+      window.removeEventListener('recreo:listings-updated', loadNavigationSummary)
     }
   }, [isAuth, session.status, session.user?.id, session.user?.admin_role])
 
   return (
     <header className={`site-header${isLanding ? ' landing-header' : ' app-site-header'}${menuOpen ? ' is-open' : ''}`}>
-      <Link className="wordmark" to="/" aria-label="CampusTrade home">
-        campusTrade
+      <Link className="wordmark" to="/" aria-label="RECREO home">
+        RECREO
       </Link>
       {!isLanding && !landingSessionChecking && (
         <button

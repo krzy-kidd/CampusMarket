@@ -196,7 +196,7 @@ export function MessageThreadPage() {
         setMessages(data.messages)
         setNextCursor(data.next_cursor)
         setError('')
-        window.dispatchEvent(new CustomEvent('campustrade:messages-updated'))
+        window.dispatchEvent(new CustomEvent('recreo:messages-updated'))
       })
       .catch((requestError) => {
         if (!active) return
@@ -271,7 +271,7 @@ export function MessageThreadPage() {
     setError('')
     try {
       const { data } = await api.post(`/api/auth/conversations/${conversationId}/transactions`)
-      window.dispatchEvent(new CustomEvent('campustrade:transactions-updated'))
+      window.dispatchEvent(new CustomEvent('recreo:transactions-updated'))
       navigate(`/transactions/${data.transaction.id}`)
     } catch (requestError) {
       if (requestError.response?.status === 401) {

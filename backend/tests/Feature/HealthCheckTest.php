@@ -20,7 +20,7 @@ class HealthCheckTest extends TestCase
             ->assertOk()
             ->assertExactJson([
                 'status' => 'healthy',
-                'application' => 'CampusTrade',
+                'application' => 'RECREO',
                 'database' => 'connected',
             ]);
     }

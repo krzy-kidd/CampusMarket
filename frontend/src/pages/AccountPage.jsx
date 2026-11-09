@@ -143,9 +143,9 @@ function AuthLayout({ children }) {
   return (
     <main className="auth-page">
       <aside className="auth-promo">
-        <div className="auth-promo-brand" aria-label="CampusTrade">
+        <div className="auth-promo-brand" aria-label="RECREO">
           <span className="auth-brand-icon" aria-hidden="true">cT</span>
-          <span>campusTrade</span>
+          <span>RECREO</span>
         </div>
         <div className="auth-promo-copy">
           <p>WMSU STUDENT MARKETPLACE</p>
@@ -251,7 +251,7 @@ export function AuthPage({ mode }) {
     <AuthLayout>
       <Card as="section" className="auth-card" aria-labelledby="auth-title">
         <p className="auth-eyebrow">{isRegister ? 'Join the campus community' : 'Welcome back'}</p>
-        <h1 id="auth-title">{isRegister ? 'Create your account' : 'Sign in to campusTrade'}</h1>
+        <h1 id="auth-title">{isRegister ? 'Create your account' : 'Sign in to RECREO'}</h1>
         <p className="auth-intro">
           {isRegister
             ? 'Use your WMSU student details to get started.'
@@ -355,7 +355,7 @@ export function AuthPage({ mode }) {
           </Button>
         </form>
         <p className="auth-form-footer">
-          {isRegister ? 'Already have an account? ' : 'New to CampusTrade? '}
+          {isRegister ? 'Already have an account? ' : 'New to RECREO? '}
           <Link className="text-link" to={isRegister ? '/login' : '/register'}>
             {isRegister ? 'Sign in' : 'Create an account'}
           </Link>

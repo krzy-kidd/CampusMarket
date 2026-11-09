@@ -69,7 +69,7 @@ export default function RequireAccount({
           <p className="eyebrow">Account access</p>
           <h1 id="inactive-account-title">Your account is not active</h1>
           <p className="status-detail">
-            Current status: <strong>{access.user.account_status}</strong>. Contact a CampusTrade administrator if you think this is a mistake.
+            Current status: <strong>{access.user.account_status}</strong>. Contact a RECREO administrator if you think this is a mistake.
           </p>
           <div className="status-actions"><Link className="text-link" to="/">Return home</Link></div>
         </section>

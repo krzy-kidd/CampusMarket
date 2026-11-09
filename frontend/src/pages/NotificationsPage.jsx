@@ -23,7 +23,7 @@ function formatDateTime(value) {
 }
 
 function announceUnreadCount(unreadCount) {
-  window.dispatchEvent(new CustomEvent('campustrade:notifications-updated', {
+  window.dispatchEvent(new CustomEvent('recreo:notifications-updated', {
     detail: { unreadCount },
   }))
 }

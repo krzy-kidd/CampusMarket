@@ -291,7 +291,7 @@ function AdminPage() {
         <aside className="admin-sidebar">
           <div className="admin-brand">
             <span className="admin-brand-mark" aria-hidden="true">C</span>
-            <span><strong>campusTrade</strong><small>ADMIN WORKSPACE</small></span>
+            <span><strong>RECREO</strong><small>ADMIN WORKSPACE</small></span>
           </div>
           <p className="admin-nav-label">WORKSPACE</p>
           <nav className="admin-nav" aria-label="Admin sections">
@@ -317,7 +317,7 @@ function AdminPage() {
             <div>
               <p className="eyebrow">{isSuperAdmin ? 'SUPER ADMIN' : 'VERIFICATION ADMIN'}</p>
               <h1>{section === 'overview' ? 'Admin dashboard' : sections.find(([key]) => key === section)?.[1]}</h1>
-              <p>Manage CampusTrade’s student marketplace.</p>
+              <p>Manage RECREO’s student marketplace.</p>
             </div>
             <span className="admin-account-email">{user.email}</span>
           </section>

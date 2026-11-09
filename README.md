@@ -1,6 +1,6 @@
-# CampusTrade
+# RECREO
 
-CampusTrade is a fixed-price buying and selling marketplace for the Western
+RECREO is a fixed-price buying and selling marketplace for the Western
 Mindanao State University community. The application is split into a React
 frontend and a Laravel REST API.
 
@@ -16,7 +16,7 @@ frontend and a Laravel REST API.
 
 1. Configure the local PHP and MySQL runtimes for your machine. Copy
    `backend/.env.example` to `backend/.env`, set the MySQL username/password,
-   and ensure the `campustrade` database exists. Do not commit `backend/.env`.
+   and ensure the `recreo` database exists. Do not commit `backend/.env`.
 2. From `backend`, configure the PHP executable for your terminal. For the
    PHP 8.4 installation used on this machine, run:
    ```powershell
@@ -167,7 +167,7 @@ appear in **Admin → Demo email preview** for Super Admins. Links expire and
 verification must be completed while signed in as the student.
 
 Create the initial administrator from the backend terminal with
-`& $php artisan campustrade:bootstrap-super-admin`. The command prompts for
+`& $php artisan recreo:bootstrap-super-admin`. The command prompts for
 the account email and password; it cannot be called through the public API.
 Verification review endpoints require an active verification administrator or
 Super Admin session. COR submission is unavailable until an academic year is
@@ -189,7 +189,7 @@ resolve reports, and inspect audit logs. Super Admin operations are enforced
 by server-side role middleware, not only hidden in the interface.
 
 Create the initial Super Admin with
-`& $php artisan campustrade:bootstrap-super-admin` when no active Super Admin
+`& $php artisan recreo:bootstrap-super-admin` when no active Super Admin
 exists. Existing Super Admins can create Verification Admin accounts and
 transfer the Super Admin role; transfer keeps a single active Super Admin.
 Academic-year date overlaps and deleting categories/years with dependent data

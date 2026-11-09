@@ -24,7 +24,7 @@ class VerificationReviewed extends Notification
     public function toMail(object $notifiable): MailMessage
     {
         $mail = (new MailMessage)
-            ->subject('CampusTrade COR verification update')
+            ->subject('RECREO COR verification update')
             ->greeting('Hello '.$notifiable->first_name.',')
             ->line('Your COR submission for '.$this->academicYear.' was '.$this->decision.'.');
 
@@ -32,7 +32,7 @@ class VerificationReviewed extends Notification
             $mail->line('Review notes: '.$this->adminNotes);
         }
 
-        return $mail->line('Sign in to CampusTrade to view your verification status.');
+        return $mail->line('Sign in to RECREO to view your verification status.');
     }
 
     public function toArray(object $notifiable): array

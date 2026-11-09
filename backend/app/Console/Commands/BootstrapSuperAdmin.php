@@ -12,9 +12,9 @@ use Illuminate\Support\Str;
 
 class BootstrapSuperAdmin extends Command
 {
-    protected $signature = 'campustrade:bootstrap-super-admin';
+    protected $signature = 'recreo:bootstrap-super-admin';
 
-    protected $description = 'Create the first active CampusTrade Super Admin from the command line';
+    protected $description = 'Create the first active RECREO Super Admin from the command line';
 
     public function handle(): int
     {
@@ -46,7 +46,7 @@ class BootstrapSuperAdmin extends Command
         DB::transaction(function () use ($email, $password): void {
             $user = User::query()->create([
                 'student_id_number' => 'ADMIN-'.Str::upper(Str::random(12)),
-                'first_name' => 'CampusTrade',
+                'first_name' => 'RECREO',
                 'last_name' => 'Administrator',
                 'email' => $email,
                 'password' => Hash::make($password),

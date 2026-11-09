@@ -22,7 +22,7 @@ const TRANSACTION_CHART_STATUSES = [
 ]
 
 function getErrorMessage(error) {
-  return error.response?.data?.message || 'CampusTrade could not load your overview. Please try again.'
+  return error.response?.data?.message || 'RECREO could not load your overview. Please try again.'
 }
 
 export default function DashboardPage() {
@@ -64,7 +64,7 @@ export default function DashboardPage() {
 
         const accountData = account.value.data?.user
         if (!accountData || typeof accountData !== 'object') {
-          setError('CampusTrade returned incomplete account information. Please try again.')
+          setError('RECREO returned incomplete account information. Please try again.')
           return
         }
 
@@ -148,7 +148,7 @@ export default function DashboardPage() {
         <section className="dashboard-verification-callout" aria-labelledby="dashboard-account-title">
           <div>
             <h2 id="dashboard-account-title">Some account actions are unavailable</h2>
-            <p>Your account status is {account.account_status}. Contact a CampusTrade administrator if you think this is a mistake.</p>
+            <p>Your account status is {account.account_status}. Contact a RECREO administrator if you think this is a mistake.</p>
           </div>
           {account.admin_role && <Link className="secondary-link" to="/admin">Admin dashboard</Link>}
         </section>
@@ -234,7 +234,7 @@ export default function DashboardPage() {
               {recentTransactions.map((transaction) => (
                 <li key={transaction.id}>
                   <Link to={`/transactions/${transaction.id}`}>
-                    <strong>{transaction.listing?.title || 'CampusTrade item'}</strong>
+                    <strong>{transaction.listing?.title || 'RECREO item'}</strong>
                     <span>{TRANSACTION_LABELS[transaction.transaction_status] || 'Transaction update'}</span>
                     <small>
                       {transaction.current_user_role === 'buyer'

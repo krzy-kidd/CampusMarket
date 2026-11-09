@@ -231,7 +231,7 @@ function App() {
       </ErrorBoundary>
       <footer className={`site-footer${isLanding ? ' landing-footer' : ''}`}>
         {isLanding
-          ? 'CampusTrade is a student project for WMSU. It is not run by the university.'
+          ? 'RECREO is a student project for WMSU. It is not run by the university.'
           : 'A student marketplace for the WMSU community'}
       </footer>
     </div>

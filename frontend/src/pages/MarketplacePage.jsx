@@ -785,7 +785,7 @@ export function MyListingsPage() {
       } else {
         await api.post(`/api/auth/listings/${listing.id}/relist`)
       }
-      window.dispatchEvent(new CustomEvent('campustrade:listings-updated'))
+      window.dispatchEvent(new CustomEvent('recreo:listings-updated'))
       setMessage(action === 'archive' ? 'Listing archived.' : 'Listing relisted.')
     } catch (requestError) {
       setError(getErrorMessage(requestError))
