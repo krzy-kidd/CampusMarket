@@ -129,20 +129,137 @@ class AdminDashboardTest extends TestCase
             ->assertJsonPath('monthly_analytics.5.listings', 1);
     }
 
-    public function test_admin_accounts_cannot_use_student_cor_verification_endpoints(): void
+    public function test_admin_accounts_can_inspect_only_their_own_student_views_without_writes(): void
     {
         $admin = $this->createAdmin('verification_admin');
+        $student = User::factory()->create();
+        $otherStudent = User::factory()->create();
+        $category = Category::query()->create([
+            'category_name' => 'Books',
+            'description' => 'Books and textbooks',
+        ]);
+        $academicYear = AcademicYear::query()->create([
+            'academic_year' => '2026-2027',
+            'start_date' => '2026-07-01',
+            'end_date' => '2027-06-30',
+            'is_current' => true,
+        ]);
+        $studentVerification = Verification::query()->create([
+            'user_id' => $student->id,
+            'academic_year_id' => $academicYear->id,
+            'cor_file_path' => 'cor/'.$student->id.'/document.pdf',
+            'submission_status' => 'approved',
+            'submitted_at' => now(),
+            'reviewed_at' => now(),
+            'reviewed_by' => $admin->id,
+        ]);
+        VerificationAttempt::query()->create([
+            'verification_id' => $studentVerification->id,
+            'user_id' => $student->id,
+            'academic_year_id' => $academicYear->id,
+            'attempt_number' => 1,
+            'cor_file_path' => 'cor/'.$student->id.'/document.pdf',
+            'submission_status' => 'approved',
+            'submitted_at' => now(),
+            'reviewed_at' => now(),
+            'reviewed_by' => $admin->id,
+        ]);
+        Listing::query()->create([
+            'seller_id' => $admin->id,
+            'category_id' => $category->id,
+            'title' => 'Admin preview listing',
+            'description' => 'Owned by the signed-in admin',
+            'price' => 100,
+            'condition_rating' => 4,
+        ]);
+        $studentListing = Listing::query()->create([
+            'seller_id' => $student->id,
+            'category_id' => $category->id,
+            'title' => 'Another student listing',
+            'description' => 'Must not appear in the admin account view',
+            'price' => 100,
+            'condition_rating' => 4,
+        ]);
+        $otherListing = Listing::query()->create([
+            'seller_id' => $otherStudent->id,
+            'category_id' => $category->id,
+            'title' => 'Other student item',
+            'description' => 'Owned by a different student',
+            'price' => 100,
+            'condition_rating' => 4,
+        ]);
+        $ownConversation = Conversation::query()->create([
+            'listing_id' => $studentListing->id,
+            'buyer_id' => $admin->id,
+            'seller_id' => $student->id,
+        ]);
+        $otherConversation = Conversation::query()->create([
+            'listing_id' => $otherListing->id,
+            'buyer_id' => $student->id,
+            'seller_id' => $otherStudent->id,
+        ]);
+        $incomingMessage = Message::query()->create([
+            'conversation_id' => $ownConversation->id,
+            'sender_id' => $student->id,
+            'message_text' => 'Admin account message',
+            'sent_at' => now(),
+        ]);
+        $ownTransaction = Transaction::query()->create([
+            'listing_id' => $studentListing->id,
+            'buyer_id' => $admin->id,
+            'seller_id' => $student->id,
+            'agreed_price' => '100.00',
+            'transaction_status' => 'pending_agreement',
+        ]);
+        Transaction::query()->create([
+            'listing_id' => $otherListing->id,
+            'buyer_id' => $student->id,
+            'seller_id' => $otherStudent->id,
+            'agreed_price' => '100.00',
+            'transaction_status' => 'pending_agreement',
+        ]);
+        $ownConversation->update(['transaction_id' => $ownTransaction->id]);
+        Notification::query()->create([
+            'user_id' => $admin->id,
+            'notification_type' => 'transaction_update',
+            'message' => 'Admin account notification',
+            'action_url' => '/transactions/'.$ownTransaction->id,
+        ]);
+        Notification::query()->create([
+            'user_id' => $student->id,
+            'notification_type' => 'transaction_update',
+            'message' => 'Student notification',
+        ]);
 
-        $this->actingAs($admin)->getJson('/api/auth/verification/status')->assertForbidden();
-        $this->getJson('/api/auth/verification/history')->assertForbidden();
+        $this->actingAs($admin)->getJson('/api/auth/verification/status')
+            ->assertOk()
+            ->assertJsonPath('status', 'not_submitted');
+        $this->getJson('/api/auth/verification/history')->assertOk()->assertJsonCount(0, 'attempts');
+        $this->getJson('/api/auth/listings')
+            ->assertOk()
+            ->assertJsonFragment(['title' => 'Admin preview listing'])
+            ->assertJsonMissing(['title' => 'Another student listing']);
+        $this->getJson('/api/auth/conversations')
+            ->assertOk()
+            ->assertJsonCount(1, 'conversations')
+            ->assertJsonPath('conversations.0.id', $ownConversation->id);
+        $this->getJson('/api/auth/conversations/'.$ownConversation->id)->assertOk();
+        $this->assertNull($incomingMessage->fresh()->read_at);
+        $this->getJson('/api/auth/conversations/'.$otherConversation->id)->assertNotFound();
+        $this->getJson('/api/auth/notifications')
+            ->assertOk()
+            ->assertJsonCount(1, 'notifications')
+            ->assertJsonPath('notifications.0.message', 'Admin account notification');
+        $this->getJson('/api/auth/transactions')
+            ->assertOk()
+            ->assertJsonCount(1, 'transactions')
+            ->assertJsonPath('transactions.0.id', $ownTransaction->id);
+
         $this->postJson('/api/auth/verification/cor')->assertForbidden();
-        $this->getJson('/api/auth/listings')->assertForbidden();
         $this->postJson('/api/auth/listings')->assertForbidden();
         $this->postJson('/api/auth/reports')->assertForbidden();
-        $this->getJson('/api/auth/conversations')->assertForbidden();
         $this->postJson('/api/auth/conversations')->assertForbidden();
-        $this->getJson('/api/auth/notifications')->assertForbidden();
-        $this->getJson('/api/auth/transactions')->assertForbidden();
+        $this->postJson('/api/auth/notifications/read-all')->assertForbidden();
     }
 
     public function test_super_admin_can_manage_academic_years_and_categories_with_audit_logs(): void

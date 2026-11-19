@@ -157,14 +157,19 @@ New account and reset passwords must be at least 8 characters and contain
 letters and numbers only.
 
 Browser authentication uses Sanctum's session cookies. Frontend requests first
-fetch `/sanctum/csrf-cookie`, then send credentialed requests to the API. Email
-verification and password-reset links return to the frontend. The example
-environment uses `MAIL_MAILER=log`; locally, messages are written to
-`backend/storage/logs/laravel.log`. Configure a real SMTP mailer before sending
-messages to students.
-When `APP_ENV=local`, newly generated verification and password-reset links also
-appear in **Admin → Demo email preview** for Super Admins. Links expire and
-verification must be completed while signed in as the student.
+fetch `/sanctum/csrf-cookie`, then send credentialed requests to the API. New
+accounts receive a six-digit email verification code that expires after 10
+minutes. Codes are stored hashed, allow up to five attempts, and can be resent
+from the verification screen. Password resets also use email.
+
+To send codes to Gmail, set the backend mail settings in `backend/.env`:
+`MAIL_MAILER=smtp`, `MAIL_SCHEME=smtp`, `MAIL_HOST=smtp.gmail.com`,
+`MAIL_PORT=587`, `MAIL_USERNAME` to the sending Gmail address,
+`MAIL_PASSWORD` to its Google app password, and `MAIL_FROM_ADDRESS` to the same
+address. Keep the app password private and out of Git. Google requires an app
+password for this SMTP sign-in; create one from the sending account's Google
+Account security settings. `MAIL_MAILER=log` writes message contents to the
+Laravel log instead of delivering them.
 
 Create the initial administrator from the backend terminal with
 `& $php artisan recreo:bootstrap-super-admin`. The command prompts for

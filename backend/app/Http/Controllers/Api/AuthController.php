@@ -4,17 +4,18 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AcademicYear;
-use App\Models\DemoEmail;
 use App\Models\User;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\TransientToken;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -72,10 +73,21 @@ class AuthController extends Controller
 
         Auth::login($user);
         $request->session()->regenerate();
-        $user->sendEmailVerificationNotification();
+        $verificationEmailSent = false;
+        if ($this->emailDeliveryConfigured()) {
+            try {
+                $user->sendEmailVerificationNotification();
+                $verificationEmailSent = true;
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
 
         return response()->json([
-            'message' => 'Your account was created. Verify your WMSU email address to continue.',
+            'message' => $verificationEmailSent
+                ? 'Your account was created. A 6-digit verification code was sent to your WMSU email address.'
+                : 'Your account was created, but email delivery is not configured or sending failed. Set up SMTP, then request a new code.',
+            'verification_email_sent' => $verificationEmailSent,
             'user' => $this->userPayload($user),
         ], 201);
     }
@@ -139,7 +151,7 @@ class AuthController extends Controller
         return response()->json(['user' => $this->userPayload($request->user())]);
     }
 
-    public function sendVerificationNotification(Request $request): JsonResponse
+    public function sendVerificationCode(Request $request): JsonResponse
     {
         $user = $request->user();
 
@@ -147,46 +159,87 @@ class AuthController extends Controller
             return response()->json(['message' => 'Your email address is already verified.']);
         }
 
-        $user->sendEmailVerificationNotification();
+        if (! $this->emailDeliveryConfigured()) {
+            return response()->json([
+                'message' => 'Email delivery is not configured. Set up SMTP in the backend environment before requesting a code.',
+            ], 503);
+        }
 
-        return response()->json(['message' => 'A new email verification link has been sent.']);
+        try {
+            $user->sendEmailVerificationNotification();
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'message' => 'We could not send a verification code. Check the mail settings and try again.',
+            ], 503);
+        }
+
+        return response()->json(['message' => 'A new 6-digit verification code has been sent to your WMSU email address.']);
     }
 
-    public function verifyEmailLocally(Request $request): JsonResponse
+    public function verifyEmailCode(Request $request): JsonResponse
     {
-        abort_unless(config('app.env') === 'local', 404);
-
+        $validated = $request->validate(['code' => ['required', 'digits:6']]);
         $user = $request->user();
 
-        if (! $user->hasVerifiedEmail()) {
-            $user->markEmailAsVerified();
-            event(new Verified($user));
+        if ($user->hasVerifiedEmail()) {
+            return response()->json(['message' => 'Your email address is already verified.']);
         }
-        DemoEmail::query()
-            ->where('user_id', $user->id)
-            ->where('email_type', 'email_verification')
-            ->delete();
 
-        return response()->json([
-            'message' => 'Email marked verified for local testing only. This does not verify your real email address.',
-        ]);
-    }
+        $status = DB::transaction(function () use ($user, $validated): string {
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
-    public function verifyEmail(Request $request, string $id, string $hash): JsonResponse
-    {
-        $user = $request->user();
+            if ($lockedUser->hasVerifiedEmail()) {
+                return 'verified';
+            }
 
-        abort_unless((string) $user->getKey() === $id, 403, 'This verification link belongs to another account.');
-        abort_unless(hash_equals(sha1($user->getEmailForVerification()), $hash), 403, 'This email verification link is invalid.');
+            if (! $lockedUser->email_verification_code_hash || ! $lockedUser->email_verification_code_expires_at) {
+                return 'missing';
+            }
 
-        if (! $user->hasVerifiedEmail()) {
-            $user->markEmailAsVerified();
-            event(new Verified($user));
+            if ($lockedUser->email_verification_code_expires_at->isPast()) {
+                $lockedUser->forceFill([
+                    'email_verification_code_hash' => null,
+                    'email_verification_code_expires_at' => null,
+                    'email_verification_code_attempts' => 0,
+                ])->save();
+
+                return 'expired';
+            }
+
+            if ($lockedUser->email_verification_code_attempts >= 5) {
+                return 'locked';
+            }
+
+            if (! Hash::check($validated['code'], $lockedUser->email_verification_code_hash)) {
+                $attempts = $lockedUser->email_verification_code_attempts + 1;
+                $lockedUser->forceFill(['email_verification_code_attempts' => $attempts])->save();
+
+                return $attempts >= 5 ? 'locked' : 'invalid';
+            }
+
+            $lockedUser->markEmailAsVerified();
+            $lockedUser->forceFill([
+                'email_verification_code_hash' => null,
+                'email_verification_code_expires_at' => null,
+                'email_verification_code_attempts' => 0,
+            ])->save();
+            event(new Verified($lockedUser));
+
+            return 'verified';
+        });
+
+        if ($status !== 'verified') {
+            $message = match ($status) {
+                'missing' => 'Request a new verification code before trying again.',
+                'expired' => 'That code has expired. Request a new code and try again.',
+                'locked' => 'Too many incorrect attempts. Request a new code to continue.',
+                default => 'That verification code is incorrect. Please try again.',
+            };
+
+            return response()->json(['message' => $message], 422);
         }
-        DemoEmail::query()
-            ->where('user_id', $user->id)
-            ->where('email_type', 'email_verification')
-            ->delete();
 
         return response()->json(['message' => 'Your WMSU email address has been verified.']);
     }
@@ -219,10 +272,6 @@ class AuthController extends Controller
             ])->save();
 
             event(new PasswordReset($user));
-            DemoEmail::query()
-                ->where('user_id', $user->id)
-                ->where('email_type', 'password_reset')
-                ->delete();
         });
 
         if ($status !== Password::PASSWORD_RESET) {
@@ -258,5 +307,37 @@ class AuthController extends Controller
             'verification_status' => $verification?->submission_status ?? 'not_submitted',
             'is_verified_for_current_year' => $user->isVerifiedForCurrentAcademicYear(),
         ];
+    }
+
+    private function emailDeliveryConfigured(): bool
+    {
+        $mailer = config('mail.default');
+
+        if (in_array($mailer, ['log', 'array'], true)) {
+            return false;
+        }
+
+        if ($mailer !== 'smtp') {
+            return true;
+        }
+
+        $host = strtolower(trim((string) config('mail.mailers.smtp.host')));
+        $username = trim((string) config('mail.mailers.smtp.username'));
+        $password = trim((string) config('mail.mailers.smtp.password'));
+        $fromAddress = config('mail.from.address');
+
+        if (
+            $host === ''
+            || ! is_string($fromAddress)
+            || filter_var($fromAddress, FILTER_VALIDATE_EMAIL) === false
+        ) {
+            return false;
+        }
+
+        if ($host === 'smtp.gmail.com') {
+            return $username !== '' && $password !== '';
+        }
+
+        return ($username === '') === ($password === '');
     }
 }

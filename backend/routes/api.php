@@ -4,7 +4,6 @@ use App\Http\Controllers\Api\AdminDashboardController;
 use App\Http\Controllers\Api\AdminVerificationController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ConversationController;
-use App\Http\Controllers\Api\DemoEmailController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\ListingController;
 use App\Http\Controllers\Api\NavigationSummaryController;
@@ -28,13 +27,10 @@ Route::prefix('auth')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
-        Route::post('/email/verification-notification', [AuthController::class, 'sendVerificationNotification'])
+        Route::post('/email/verification-code', [AuthController::class, 'sendVerificationCode'])
             ->middleware('throttle:3,1');
-        Route::post('/email/verify-local', [AuthController::class, 'verifyEmailLocally'])
-            ->middleware('throttle:3,1');
-        Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
-            ->middleware(['signed', 'throttle:6,1'])
-            ->name('verification.verify');
+        Route::post('/email/verify-code', [AuthController::class, 'verifyEmailCode'])
+            ->middleware('throttle:10,1');
 
         Route::middleware('student.account')->group(function () {
             Route::get('/navigation-summary', NavigationSummaryController::class);
@@ -114,10 +110,6 @@ Route::prefix('auth')->group(function () {
                     ->whereNumber(['verification', 'attempt']);
 
                 Route::middleware('super.admin')->group(function () {
-                    Route::get('/demo-emails', [DemoEmailController::class, 'index']);
-                    Route::delete('/demo-emails', [DemoEmailController::class, 'clear'])
-                        ->middleware('throttle:5,1');
-
                     Route::get('/academic-years', [AdminDashboardController::class, 'academicYears']);
                     Route::post('/academic-years', [AdminDashboardController::class, 'storeAcademicYear']);
                     Route::patch('/academic-years/{academicYear}', [AdminDashboardController::class, 'updateAcademicYear'])

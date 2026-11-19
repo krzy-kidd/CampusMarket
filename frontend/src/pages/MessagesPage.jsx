@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { Button, FormField, TextArea } from '../components/ui.jsx'
 import api from '../lib/api.js'
 
@@ -36,6 +36,7 @@ function signInFor(returnTo, navigate) {
 
 export function MessagesPage() {
   const navigate = useNavigate()
+  const { adminPreview = false } = useOutletContext() || {}
   const [conversations, setConversations] = useState([])
   const [nextCursor, setNextCursor] = useState(null)
   const [error, setError] = useState('')
@@ -97,12 +98,17 @@ export function MessagesPage() {
     <main className="marketplace-shell messages-shell">
       <div className="messages-heading">
         <div>
-          <p className="eyebrow">Private conversations</p>
+          <p className="eyebrow">{adminPreview ? 'Admin account conversations' : 'Private conversations'}</p>
           <h1>Messages</h1>
-          <p>Talk directly with students about marketplace listings.</p>
+          <p>{adminPreview ? 'Only conversations involving your admin account are shown.' : 'Talk directly with students about marketplace listings.'}</p>
         </div>
         <Link className="secondary-link" to="/marketplace">Browse marketplace</Link>
       </div>
+      {adminPreview && (
+        <p className="account-notice" role="status">
+          Read-only admin preview: messages cannot be sent and opening conversations will not mark messages as read.
+        </p>
+      )}
       {loading ? (
         <p className="marketplace-loading" role="status">Loading your conversations…</p>
       ) : error && !conversations.length ? (
@@ -162,7 +168,7 @@ export function MessagesPage() {
         <section className="marketplace-empty">
           <span className="marketplace-empty-mark" aria-hidden="true">cT</span>
           <h2>No conversations yet</h2>
-          <p>Open a listing and send the seller a message to start a private conversation.</p>
+          <p>{adminPreview ? 'There are no conversations for this admin account.' : 'Open a listing and send the seller a message to start a private conversation.'}</p>
           <Link className="primary-link" to="/marketplace">Browse listings</Link>
         </section>
       )}
@@ -173,6 +179,7 @@ export function MessagesPage() {
 export function MessageThreadPage() {
   const { conversationId } = useParams()
   const navigate = useNavigate()
+  const { adminPreview = false } = useOutletContext() || {}
   const [conversation, setConversation] = useState(null)
   const [messages, setMessages] = useState([])
   const [nextCursor, setNextCursor] = useState(null)
@@ -242,6 +249,7 @@ export function MessageThreadPage() {
 
   async function sendMessage(event) {
     event.preventDefault()
+    if (adminPreview) return
     const cleanMessage = messageText.trim()
     if (!cleanMessage || busy) return
 
@@ -267,6 +275,7 @@ export function MessageThreadPage() {
   }
 
   async function requestPurchase() {
+    if (adminPreview) return
     setRequestingPurchase(true)
     setError('')
     try {
@@ -334,6 +343,11 @@ export function MessageThreadPage() {
             Refresh
           </Button>
         </header>
+        {adminPreview && (
+          <p className="account-notice" role="status">
+            Read-only admin preview: messages cannot be sent, purchase requests are disabled, and viewing this conversation does not mark messages as read.
+          </p>
+        )}
         {conversation.transaction && conversation.transaction.transaction_status !== 'cancelled' ? (
           <div className="conversation-transaction-banner">
             <p>
@@ -352,16 +366,20 @@ export function MessageThreadPage() {
             <Button to={`/transactions/${conversation.transaction.id}`} variant="secondary">
               View cancelled request
             </Button>
-            <Button disabled={requestingPurchase} onClick={requestPurchase}>
-              {requestingPurchase ? 'Creating request…' : 'Start a new purchase request'}
-            </Button>
+            {!adminPreview && (
+              <Button disabled={requestingPurchase} onClick={requestPurchase}>
+                {requestingPurchase ? 'Creating request…' : 'Start a new purchase request'}
+              </Button>
+            )}
           </div>
         ) : conversation.current_user_role === 'buyer' && conversation.listing.listing_status === 'available' ? (
           <div className="conversation-transaction-banner">
             <p>Request to purchase at the listed price of {formatPrice(conversation.listing.price)}.</p>
-            <Button disabled={requestingPurchase} onClick={requestPurchase}>
-              {requestingPurchase ? 'Creating request…' : 'Request purchase'}
-            </Button>
+            {!adminPreview && (
+              <Button disabled={requestingPurchase} onClick={requestPurchase}>
+                {requestingPurchase ? 'Creating request…' : 'Request purchase'}
+              </Button>
+            )}
           </div>
         ) : conversation.transaction?.transaction_status === 'cancelled' ? (
           <div className="conversation-transaction-banner">
@@ -403,25 +421,29 @@ export function MessageThreadPage() {
           <div ref={messagesEndRef} />
         </div>
         {error && <p className="form-error message-form-error" role="alert">{error}</p>}
-        <form className="message-compose" onSubmit={sendMessage}>
-          <FormField label="Your message">
-            <TextArea
-              name="message_text"
-              value={messageText}
-              onChange={(event) => setMessageText(event.target.value)}
-              placeholder="Write a message about this listing…"
-              maxLength="2000"
-              rows="3"
-              required
-            />
-          </FormField>
-          <div className="message-compose-actions">
-            <span>{messageText.length}/2000</span>
-            <Button type="submit" disabled={busy || !messageText.trim()}>
-              {busy ? 'Sending…' : 'Send message'}
-            </Button>
-          </div>
-        </form>
+        {adminPreview ? (
+          <p className="conversation-purchase-note">Message composition is disabled in this preview.</p>
+        ) : (
+          <form className="message-compose" onSubmit={sendMessage}>
+            <FormField label="Your message">
+              <TextArea
+                name="message_text"
+                value={messageText}
+                onChange={(event) => setMessageText(event.target.value)}
+                placeholder="Write a message about this listing…"
+                maxLength="2000"
+                rows="3"
+                required
+              />
+            </FormField>
+            <div className="message-compose-actions">
+              <span>{messageText.length}/2000</span>
+              <Button type="submit" disabled={busy || !messageText.trim()}>
+                {busy ? 'Sending…' : 'Send message'}
+              </Button>
+            </div>
+          </form>
+        )}
       </section>
     </main>
   )

@@ -170,9 +170,10 @@ class VerificationController extends Controller
     private function ensureStudentAccount(Request $request): void
     {
         abort_if(
-            $request->user()->admin()->exists(),
+            $request->user()->admin()->exists()
+                && ! in_array($request->method(), ['GET', 'HEAD'], true),
             403,
-            'Administrator accounts do not use student COR verification.',
+            'Administrator preview is read-only.',
         );
     }
 }

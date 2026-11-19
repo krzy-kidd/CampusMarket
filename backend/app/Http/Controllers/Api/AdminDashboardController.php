@@ -40,7 +40,6 @@ class AdminDashboardController extends Controller
             'role' => $role,
             'current_academic_year' => AcademicYear::query()->where('is_current', true)->value('academic_year'),
             'pending_verifications' => Verification::query()->where('submission_status', 'pending')->count(),
-            'demo_mailbox_enabled' => $role === 'super_admin' && config('app.env') === 'local',
         ];
 
         if ($role === 'super_admin') {

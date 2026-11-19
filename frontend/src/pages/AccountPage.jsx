@@ -239,6 +239,18 @@ export function AuthPage({ mode }) {
       )
       cacheCurrentUser(data.user)
       const destination = safeInternalRoute(location.state?.returnTo, '/marketplace')
+      if (!data.user.email_verified) {
+        navigate('/verify-email', {
+          replace: true,
+          state: {
+            email: data.user.email,
+            justRegistered: isRegister,
+            notice: isRegister ? data.message : '',
+            returnTo: destination === '/verify-email' ? '/marketplace' : destination,
+          },
+        })
+        return
+      }
       navigate(destination, { replace: true, state: { notice: data.message } })
     } catch (requestError) {
       setError(errorMessage(requestError))
@@ -255,7 +267,7 @@ export function AuthPage({ mode }) {
         <p className="auth-intro">
           {isRegister
             ? 'Use your WMSU student details to get started.'
-            : 'Log in to continue to the WMSU student marketplace.'}
+            : 'Log in to continue to the WMSU student marketplace. If your email is not verified yet, we’ll guide you through it.'}
         </p>
         <form className="account-form auth-form" onSubmit={submit}>
           {isRegister && (
@@ -515,61 +527,150 @@ export function ResetPasswordPage() {
 export function VerifyEmailPage() {
   const location = useLocation()
   const [result, setResult] = useState({ status: 'checking', authRequired: false })
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [actionMessage, setActionMessage] = useState('')
+  const [actionError, setActionError] = useState('')
+  const returnTo = safeInternalRoute(location.state?.returnTo, '/account')
 
   useEffect(() => {
     let active = true
-    const signedUrl = new URLSearchParams(location.search).get('url')
 
-    async function verify() {
+    async function loadVerificationStatus() {
       try {
-        const apiUrl = new URL(api.defaults.baseURL, window.location.origin)
-        const verificationUrl = signedUrl ? new URL(signedUrl, apiUrl) : null
-        const isVerificationEndpoint = verificationUrl
-          && /^\/api\/auth\/email\/verify\/\d+\/[a-f\d]{40}$/i.test(verificationUrl.pathname)
-          && verificationUrl.searchParams.has('expires')
-          && verificationUrl.searchParams.has('signature')
-        if (!isVerificationEndpoint || verificationUrl.origin !== apiUrl.origin) {
-          throw new Error('This verification link is invalid.')
-        }
-        await csrfCookie()
-        const { data } = await api.get(verificationUrl.href)
+        const { data } = await getCurrentUser({ refresh: true })
         if (active) {
-          clearCurrentUserCache()
-          setResult({ status: 'success', message: data.message })
+          setResult({
+            status: data.user.email_verified ? 'success' : 'pending',
+            email: data.user.email,
+            authRequired: false,
+            message: data.user.email_verified
+              ? 'Your email address is already verified. Next, complete Step 2: submit your COR for the current academic year. Your COR must be approved before you can publish an item.'
+              : '',
+          })
         }
       } catch (requestError) {
         if (active) {
           setResult({
             status: 'error',
             authRequired: requestError.response?.status === 401,
-            message: requestError.response?.status === 401
-              ? 'Sign in to the account that requested this verification link, then try again.'
-              : errorMessage(requestError),
+            email: location.state?.email,
+            message: errorMessage(requestError),
           })
         }
       }
     }
 
-    verify()
+    loadVerificationStatus()
     return () => { active = false }
-  }, [location.search])
+  }, [location.state?.email])
+
+  async function verifyCode(event) {
+    event.preventDefault()
+    setBusy(true)
+    setActionMessage('')
+    setActionError('')
+    try {
+      await csrfCookie()
+      const { data } = await api.post('/api/auth/email/verify-code', { code })
+      clearCurrentUserCache()
+      setCode('')
+      setResult({
+        status: 'success',
+        message: `${data.message} Next, complete Step 2: submit your COR for the current academic year. Your COR must be approved before you can publish an item.`,
+        authRequired: false,
+      })
+    } catch (requestError) {
+      setActionError(errorMessage(requestError))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function resendVerificationCode() {
+    setBusy(true)
+    setActionMessage('')
+    setActionError('')
+    try {
+      await csrfCookie()
+      const { data } = await api.post('/api/auth/email/verification-code')
+      setActionMessage(data.message)
+    } catch (requestError) {
+      setActionError(errorMessage(requestError))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const title = result.status === 'checking'
+    ? 'Checking your email status…'
+    : result.status === 'pending'
+      ? 'Verify your WMSU email'
+      : result.status === 'success'
+        ? 'Email verified'
+        : result.authRequired
+          ? 'Sign in to verify your email'
+          : 'Could not verify email'
 
   return (
     <main className="page-shell">
       <section className="status-card">
         <p className="eyebrow">Email verification</p>
-        <h1>{result.status === 'checking' ? 'Verifying your email…' : result.status === 'success' ? 'Email verified' : 'Could not verify email'}</h1>
-        {result.message && <p className={result.status === 'error' ? 'form-error' : 'form-message'} role="status">{result.message}</p>}
+        <h1>{title}</h1>
+        {result.status === 'pending' && (
+          <p className="status-detail">
+            {result.email || location.state?.email
+              ? <>Enter the 6-digit code sent to <strong>{result.email || location.state?.email}</strong>.</>
+              : 'Enter the 6-digit code sent to your WMSU email address.'}
+          </p>
+        )}
+        {result.status === 'error' && result.message && <p className="form-error" role="alert">{result.message}</p>}
+        {result.message && result.status !== 'error' && <p className="form-message" role="status">{result.message}</p>}
+        {location.state?.notice && result.status === 'pending' && <p className="form-message" role="status">{location.state.notice}</p>}
+        {actionMessage && <p className="form-message" role="status">{actionMessage}</p>}
+        {actionError && <p className="form-error" role="alert">{actionError}</p>}
+        {result.status === 'pending' && (
+          <>
+            <form className="account-form verification-upload-form" onSubmit={verifyCode}>
+              <FormField label="6-digit verification code" hint="The code expires after 10 minutes.">
+                <TextInput
+                  name="code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  maxLength="6"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  required
+                />
+              </FormField>
+              <Button type="submit" disabled={busy || code.length !== 6}>
+                {busy ? 'Please wait…' : 'Verify email'}
+              </Button>
+            </form>
+            <p className="status-detail">If it hasn’t arrived, you can send another code.</p>
+            <div className="status-actions">
+              <Button type="button" variant="secondary" onClick={resendVerificationCode} disabled={busy}>
+                {busy ? 'Please wait…' : 'Resend code'}
+              </Button>
+            </div>
+          </>
+        )}
         <div className="status-actions">
           {result.authRequired ? (
             <Button
               to="/login"
-              state={{ returnTo: `${location.pathname}${location.search}` }}
+              state={{ returnTo: '/marketplace' }}
             >
-              Sign in to verify
+              Sign in
             </Button>
+          ) : result.status === 'error' ? (
+            <Button to="/login" variant="secondary">Back to sign in</Button>
+          ) : result.status === 'success' ? (
+            <Button to="/account">Proceed to Step 2: Submit COR</Button>
           ) : (
-            <Button to="/account">Continue to account</Button>
+            <Button to={returnTo}>Continue</Button>
           )}
         </div>
       </section>
@@ -630,30 +731,14 @@ export function AccountPage() {
     return () => { active = false }
   }, [navigate, retryKey])
 
-  async function sendVerificationEmail() {
+  async function sendVerificationCode() {
     setBusy(true)
     setError('')
     setMessage('')
     try {
       await csrfCookie()
-      const { data } = await api.post('/api/auth/email/verification-notification')
+      const { data } = await api.post('/api/auth/email/verification-code')
       setMessage(data.message)
-    } catch (requestError) {
-      setError(errorMessage(requestError))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function verifyEmailLocally() {
-    setBusy(true)
-    setError('')
-    setMessage('')
-    try {
-      await csrfCookie()
-      const { data } = await api.post('/api/auth/email/verify-local')
-      setMessage(data.message)
-      await loadAccount()
     } catch (requestError) {
       setError(errorMessage(requestError))
     } finally {
@@ -769,20 +854,10 @@ export function AccountPage() {
           </p>
           {!account.email_verified && (
             <div className="status-actions">
-              <Button type="button" onClick={sendVerificationEmail} disabled={busy}>
-                {busy ? 'Please wait…' : 'Resend verification email'}
+              <Button type="button" onClick={sendVerificationCode} disabled={busy}>
+                {busy ? 'Please wait…' : 'Resend verification code'}
               </Button>
-              {import.meta.env.DEV && !account.admin_role && (
-                <Button type="button" variant="secondary" onClick={verifyEmailLocally} disabled={busy}>
-                  Verify locally (development only)
-                </Button>
-              )}
             </div>
-          )}
-          {import.meta.env.DEV && !account.email_verified && !account.admin_role && (
-            <p className="verification-year-label">
-              Local testing shortcut only. It does not verify your actual WMSU email.
-            </p>
           )}
         </Card>}
         {!account.admin_role && <Card className="verification-panel cor-verification-panel">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { Button } from '../components/ui.jsx'
 import api from '../lib/api.js'
 import { getCurrentUser } from '../lib/session.js'
@@ -27,6 +27,7 @@ function getErrorMessage(error) {
 
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const { adminPreview = false } = useOutletContext() || {}
   const [overview, setOverview] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -112,7 +113,7 @@ export default function DashboardPage() {
           <h1>Dashboard unavailable</h1>
           <p role="alert">{error}</p>
           <Button variant="secondary" onClick={retryOverview}>Try again</Button>
-          <Link className="text-link" to="/account">Account and verification</Link>
+          {!adminPreview && <Link className="text-link" to="/account">Account and verification</Link>}
         </section>
       </main>
     )
@@ -135,7 +136,7 @@ export default function DashboardPage() {
     <main className="dashboard-shell">
       <header className="dashboard-heading">
         <div>
-          <p className="eyebrow">Student dashboard</p>
+          <p className="eyebrow">{adminPreview ? 'Student client preview' : 'Student dashboard'}</p>
           <h1>Welcome, {account.first_name}</h1>
           <p>Keep track of your verification, listings, messages, and meetups.</p>
         </div>
@@ -144,7 +145,14 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {account.account_status !== 'active' ? (
+      {adminPreview ? (
+        <section className="dashboard-verification-callout" role="status">
+          <div>
+            <h2>Read-only admin preview</h2>
+            <p>This view uses only your admin account’s activity. Student account pages and marketplace changes are not available here.</p>
+          </div>
+        </section>
+      ) : account.account_status !== 'active' ? (
         <section className="dashboard-verification-callout" aria-labelledby="dashboard-account-title">
           <div>
             <h2 id="dashboard-account-title">Some account actions are unavailable</h2>
@@ -158,7 +166,7 @@ export default function DashboardPage() {
             <h2 id="dashboard-verification-unavailable-title">Verification status is unavailable</h2>
             <p>Refresh this overview or check your account page for the latest verification status.</p>
           </div>
-          <Link className="secondary-link" to="/account">Open account</Link>
+          {!adminPreview && <Link className="secondary-link" to="/account">Open account</Link>}
         </section>
       ) : !canCreateListing && (
         <section className="dashboard-verification-callout" aria-labelledby="dashboard-verification-title">
@@ -277,8 +285,10 @@ export default function DashboardPage() {
 
       <section className="dashboard-quick-actions" aria-label="Quick actions">
         <Link to="/my-listings">Manage my listings</Link>
-        <Link to="/transactions">Coordinate a meetup</Link>
-        {canCreateListing && <Link to="/listings/new">Sell an item</Link>}
+        <Link to="/transactions">{adminPreview ? 'View transactions' : 'Coordinate a meetup'}</Link>
+        {adminPreview
+          ? <Link to="/listings/new">Preview selling form</Link>
+          : canCreateListing && <Link to="/listings/new">Sell an item</Link>}
       </section>
     </main>
   )

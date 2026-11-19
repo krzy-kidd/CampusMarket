@@ -7,6 +7,7 @@ export default function RequireAccount({
   adminOnly = false,
   studentOnly = false,
   allowGuest = false,
+  allowAdminPreview = false,
   redirectAuthenticated = false,
 }) {
   const location = useLocation()
@@ -19,11 +20,16 @@ export default function RequireAccount({
       .then(({ data }) => {
         if (!active) return
         const user = data.user
-        if (user.account_status !== 'active') {
+        if (!user || typeof user.account_status !== 'string' || !user.account_status) {
+          setAccess({
+            status: 'unavailable',
+            message: 'Your account status is missing. Refresh the page or ask an administrator to set it.',
+          })
+        } else if (user.account_status !== 'active') {
           setAccess({ status: 'inactive', user })
         } else if (adminOnly && !user.admin_role) {
           setAccess({ status: 'forbidden' })
-        } else if (studentOnly && user.admin_role) {
+        } else if (studentOnly && user.admin_role && !allowAdminPreview) {
           setAccess({ status: 'admin_disallowed' })
         } else {
           setAccess({ status: 'allowed', user })
@@ -40,14 +46,18 @@ export default function RequireAccount({
       })
 
     return () => { active = false }
-  }, [adminOnly, location.pathname, retryKey, studentOnly])
+  }, [adminOnly, allowAdminPreview, location.pathname, retryKey, studentOnly])
+
+  if (access.status === 'checking' && allowGuest && !redirectAuthenticated) {
+    return <Outlet context={{ adminPreview: false }} />
+  }
 
   if (access.status === 'checking') {
     return <main className="page-shell"><section className="status-card"><p role="status">Checking account access…</p></section></main>
   }
 
   if (access.status === 'guest') {
-    if (allowGuest) return <Outlet />
+    if (allowGuest) return <Outlet context={{ adminPreview: false }} />
 
     return (
       <Navigate
@@ -58,7 +68,11 @@ export default function RequireAccount({
     )
   }
 
-  if (access.status === 'allowed' && redirectAuthenticated) {
+  if (
+    access.status === 'allowed'
+    && redirectAuthenticated
+    && !(allowAdminPreview && access.user.admin_role)
+  ) {
     return <Navigate to={access.user.admin_role ? '/admin' : '/marketplace'} replace />
   }
 
@@ -67,7 +81,7 @@ export default function RequireAccount({
       <main className="page-shell">
         <section className="status-card" aria-labelledby="inactive-account-title">
           <p className="eyebrow">Account access</p>
-          <h1 id="inactive-account-title">Your account is not active</h1>
+          <h1 id="inactive-account-title">Your account is {access.user.account_status}</h1>
           <p className="status-detail">
             Current status: <strong>{access.user.account_status}</strong>. Contact a RECREO administrator if you think this is a mistake.
           </p>
@@ -96,5 +110,11 @@ export default function RequireAccount({
     )
   }
 
-  return <Outlet />
+  return (
+    <Outlet
+      context={{
+        adminPreview: Boolean(allowAdminPreview && access.user?.admin_role),
+      }}
+    />
+  )
 }

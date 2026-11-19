@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { Badge, Button, FormField, TextArea, TextInput } from '../components/ui.jsx'
 import api from '../lib/api.js'
 
@@ -132,6 +132,7 @@ function signInFor(returnTo, navigate) {
 
 export function TransactionsPage() {
   const navigate = useNavigate()
+  const { adminPreview = false } = useOutletContext() || {}
   const [transactions, setTransactions] = useState([])
   const [nextCursor, setNextCursor] = useState(null)
   const [error, setError] = useState('')
@@ -186,12 +187,17 @@ export function TransactionsPage() {
     <main className="marketplace-shell transaction-shell">
       <div className="messages-heading">
         <div>
-          <p className="eyebrow">Purchases and sales</p>
+          <p className="eyebrow">{adminPreview ? 'Admin account activity' : 'Purchases and sales'}</p>
           <h1>Transactions</h1>
-          <p>Track purchase requests, meetup plans, and completed sales.</p>
+          <p>{adminPreview ? 'Only transactions involving your admin account are shown.' : 'Track purchase requests, meetup plans, and completed sales.'}</p>
         </div>
         <Link className="secondary-link" to="/messages">Messages</Link>
       </div>
+      {adminPreview && (
+        <p className="account-notice" role="status">
+          Read-only admin preview: meetup, cancellation, dispute, review, and history actions are disabled.
+        </p>
+      )}
       {loading ? (
         <p className="marketplace-loading" role="status">Loading transactions…</p>
       ) : error && !transactions.length ? (
@@ -254,7 +260,7 @@ export function TransactionsPage() {
         <section className="marketplace-empty">
           <span className="marketplace-empty-mark" aria-hidden="true">cT</span>
           <h2>No transactions yet</h2>
-          <p>Choose Buy now on a listing to start a request, then confirm the meetup details together.</p>
+          <p>{adminPreview ? 'There are no transactions for this admin account.' : 'Choose Buy now on a listing to start a request, then confirm the meetup details together.'}</p>
           <Link className="primary-link" to="/marketplace">Browse listings</Link>
         </section>
       )}
@@ -265,6 +271,7 @@ export function TransactionsPage() {
 export function TransactionDetailPage() {
   const { transactionId } = useParams()
   const navigate = useNavigate()
+  const { adminPreview = false } = useOutletContext() || {}
   const [transaction, setTransaction] = useState(null)
   const [meetup, setMeetup] = useState({ meetup_date: '', meetup_time: '', meetup_location: '' })
   const [reviewDraft, setReviewDraft] = useState({ rating: '5', comment: '' })
@@ -319,6 +326,7 @@ export function TransactionDetailPage() {
   }, [])
 
   async function performAction(action, payload = {}) {
+    if (adminPreview) return
     setBusy(true)
     setError('')
     try {
@@ -349,6 +357,7 @@ export function TransactionDetailPage() {
   }
 
   async function hideCompletedTransaction() {
+    if (adminPreview) return
     if (busy || !window.confirm('Remove this completed transaction from your history? It will remain visible to the other participant.')) {
       return
     }
@@ -448,6 +457,16 @@ export function TransactionDetailPage() {
           </Badge>
         </header>
 
+        {adminPreview && (
+          <p className="account-notice" role="status">
+            Read-only admin preview: transaction controls are disabled. This record is visible only because your admin account is a participant.
+          </p>
+        )}
+        <fieldset
+          className="preview-readonly-controls"
+          disabled={adminPreview}
+          aria-label="Transaction details and actions"
+        >
         <section className="transaction-summary">
           <span>Agreed fixed price</span>
           <strong>{formatPrice(transaction.agreed_price)}</strong>
@@ -801,6 +820,7 @@ export function TransactionDetailPage() {
             </ol>
           ) : <p>No activity recorded yet.</p>}
         </section>
+        </fieldset>
       </section>
     </main>
   )

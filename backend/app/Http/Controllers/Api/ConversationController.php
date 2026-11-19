@@ -116,10 +116,12 @@ class ConversationController extends Controller
         $this->ensureActiveAccount($user->account_status);
         $this->ensureParticipant($conversation, $user->id);
 
-        $conversation->messages()
-            ->where('sender_id', '<>', $user->id)
-            ->whereNull('read_at')
-            ->update(['read_at' => now()]);
+        if (! $user->admin()->exists()) {
+            $conversation->messages()
+                ->where('sender_id', '<>', $user->id)
+                ->whereNull('read_at')
+                ->update(['read_at' => now()]);
+        }
 
         $messages = $conversation->messages()
             ->orderByDesc('id')
@@ -209,10 +211,12 @@ class ConversationController extends Controller
                 'cursor',
                 $validated['cursor'],
             );
-        $messages->getCollection()
-            ->where('sender_id', '<>', $user->id)
-            ->whereNull('read_at')
-            ->each(fn (Message $message) => $message->update(['read_at' => now()]));
+        if (! $user->admin()->exists()) {
+            $messages->getCollection()
+                ->where('sender_id', '<>', $user->id)
+                ->whereNull('read_at')
+                ->each(fn (Message $message) => $message->update(['read_at' => now()]));
+        }
 
         return response()->json([
             'messages' => $messages->getCollection()

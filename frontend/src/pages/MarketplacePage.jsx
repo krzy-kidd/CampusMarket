@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import { Badge, Button, FormField, Modal, SelectInput, TextArea, TextInput } from '../components/ui.jsx'
 import api from '../lib/api.js'
 import { getCurrentUser } from '../lib/session.js'
@@ -209,6 +209,7 @@ function MarketplaceFilters({ categories, initialFilters, categoryError, onApply
 }
 
 export function MarketplacePage() {
+  const { adminPreview = false } = useOutletContext() || {}
   const [searchParams, setSearchParams] = useSearchParams()
   const queryString = searchParams.toString()
   const [listings, setListings] = useState([])
@@ -350,9 +351,16 @@ export function MarketplacePage() {
         </div>
         <div className="marketplace-heading-actions">
           <Link className="secondary-link" to="/my-listings">My listings</Link>
-          <Link className="primary-link" to="/listings/new">Sell an item</Link>
+          <Link className="primary-link" to="/listings/new">
+            {adminPreview ? 'Preview selling form' : 'Sell an item'}
+          </Link>
         </div>
       </section>
+      {adminPreview && (
+        <p className="account-notice" role="status">
+          Admin preview: listings are view-only. Buying, messaging, and reporting are unavailable.
+        </p>
+      )}
         <MarketplaceFilters
           key={queryString}
           categories={categories}
@@ -417,11 +425,15 @@ export function MarketplacePage() {
           <p>
             {hasActiveFilters
               ? 'Try a different keyword or broaden your filters.'
-              : 'There are no items for sale right now. Check back later or share something with the campus community.'}
+              : adminPreview
+                ? 'There are no items for sale right now. Check back later.'
+                : 'There are no items for sale right now. Check back later or share something with the campus community.'}
           </p>
           {hasActiveFilters
             ? <Button variant="secondary" onClick={clearFilters}>Clear filters</Button>
-            : <Link className="primary-link" to="/listings/new">Create a listing</Link>}
+            : <Link className="primary-link" to="/listings/new">
+                {adminPreview ? 'Preview selling form' : 'Create a listing'}
+              </Link>}
         </section>
       )}
     </main>
@@ -429,6 +441,7 @@ export function MarketplacePage() {
 }
 
 export function ListingDetailPage() {
+  const { adminPreview = false } = useOutletContext() || {}
   const { listingId } = useParams()
   const navigate = useNavigate()
   const isPageActive = useRef(false)
@@ -626,8 +639,13 @@ export function ListingDetailPage() {
             {listing.seller.is_verified && <Badge variant="success">Verified WMSU student</Badge>}
             <RatingSummary seller={listing.seller} />
           </div>
-          {messageError && !purchaseOpen && <p className="form-error" role="alert">{messageError}</p>}
-          {viewerChecked && Number(listing.seller.id) !== Number(viewer?.id) && (
+          {adminPreview && (
+            <p className="account-notice" role="status">
+              Admin preview: this listing is view-only. Buying, messaging, and reporting are unavailable.
+            </p>
+          )}
+          {!adminPreview && messageError && !purchaseOpen && <p className="form-error" role="alert">{messageError}</p>}
+          {!adminPreview && viewerChecked && Number(listing.seller.id) !== Number(viewer?.id) && (
             listing.listing_status === 'available' ? (
               <>
                 <section className="listing-purchase-action" aria-labelledby="listing-purchase-heading">
@@ -727,7 +745,7 @@ export function ListingDetailPage() {
               </p>
             )
           )}
-          {viewerChecked && Number(listing.seller.id) === Number(viewer?.id) && (
+          {!adminPreview && viewerChecked && Number(listing.seller.id) === Number(viewer?.id) && (
             <p className="status-detail">This is your listing.</p>
           )}
         </div>
@@ -737,6 +755,7 @@ export function ListingDetailPage() {
 }
 
 export function MyListingsPage() {
+  const { adminPreview = false } = useOutletContext() || {}
   const navigate = useNavigate()
   const [listings, setListings] = useState([])
   const [error, setError] = useState('')
@@ -775,6 +794,7 @@ export function MyListingsPage() {
   }
 
   async function changeStatus(listing, action) {
+    if (adminPreview) return
     setBusyId(listing.id)
     setError('')
     setMessage('')
@@ -812,12 +832,19 @@ export function MyListingsPage() {
     <main className="marketplace-shell">
       <section className="marketplace-heading">
         <div>
-          <p className="eyebrow">Seller workspace</p>
+          <p className="eyebrow">{adminPreview ? 'Seller workspace preview' : 'Seller workspace'}</p>
           <h1>My listings</h1>
-          <p>Update your items and manage their marketplace status.</p>
+          <p>{adminPreview ? 'Only listings owned by your admin account are shown.' : 'Update your items and manage their marketplace status.'}</p>
         </div>
-        <Link className="primary-link" to="/listings/new">Create listing</Link>
+        <Link className="primary-link" to="/listings/new">
+          {adminPreview ? 'Preview create form' : 'Create listing'}
+        </Link>
       </section>
+      {adminPreview && (
+        <p className="account-notice" role="status">
+          Read-only admin preview: listing changes and status actions are disabled.
+        </p>
+      )}
       {error && listings.length > 0 && <p className="form-error" role="alert">{error}</p>}
       {message && <p className="form-message" role="status">{message}</p>}
       {loading ? <p className="marketplace-loading" role="status">Loading your listings…</p> : listings.length ? (
@@ -845,16 +872,22 @@ export function MyListingsPage() {
                 <p className="listing-price">{formatPrice(listing.price)}</p>
                 {listing.listing_status === 'available' && (
                   <div className="listing-actions">
-                    <Link className="secondary-link" to={`/listings/${listing.id}/edit`}>Edit</Link>
-                    <button className="text-button danger-text" type="button" disabled={busyId === listing.id} onClick={() => setArchiveTarget(listing)}>
-                      {busyId === listing.id ? 'Please wait…' : 'Archive'}
-                    </button>
+                    <Link className="secondary-link" to={`/listings/${listing.id}/edit`}>
+                      {adminPreview ? 'View edit form' : 'Edit'}
+                    </Link>
+                    {!adminPreview && (
+                      <button className="text-button danger-text" type="button" disabled={busyId === listing.id} onClick={() => setArchiveTarget(listing)}>
+                        {busyId === listing.id ? 'Please wait…' : 'Archive'}
+                      </button>
+                    )}
                   </div>
                 )}
                 {listing.listing_status === 'archived' && (
-                  <button className="secondary-link" type="button" disabled={busyId === listing.id} onClick={() => changeStatus(listing, 'relist')}>
-                    {busyId === listing.id ? 'Please wait…' : 'Relist'}
-                  </button>
+                  adminPreview
+                    ? <Link className="secondary-link" to={`/listings/${listing.id}/edit`}>View listing form</Link>
+                    : <button className="secondary-link" type="button" disabled={busyId === listing.id} onClick={() => changeStatus(listing, 'relist')}>
+                        {busyId === listing.id ? 'Please wait…' : 'Relist'}
+                      </button>
                 )}
               </div>
             </article>
@@ -870,11 +903,13 @@ export function MyListingsPage() {
         <section className="marketplace-empty">
           <span className="marketplace-empty-mark" aria-hidden="true">cT</span>
           <h2>You have no listings</h2>
-          <p>Create a listing to offer an item to WMSU students. You can manage or archive it here.</p>
-          <Link className="primary-link" to="/listings/new">Create a listing</Link>
+          <p>{adminPreview ? 'This admin account has no listings.' : 'Create a listing to offer an item to WMSU students. You can manage or archive it here.'}</p>
+          <Link className="primary-link" to="/listings/new">
+            {adminPreview ? 'Preview create form' : 'Create a listing'}
+          </Link>
         </section>
       )}
-      <Modal
+      {!adminPreview && <Modal
         open={Boolean(archiveTarget)}
         onClose={() => setArchiveTarget(null)}
         title="Archive this listing?"
@@ -891,12 +926,13 @@ export function MyListingsPage() {
         <p>
           <strong>{archiveTarget?.title}</strong> will no longer appear in the marketplace. The listing and its history will be kept, and you can relist it later.
         </p>
-      </Modal>
+      </Modal>}
     </main>
   )
 }
 
 export function ListingFormPage() {
+  const { adminPreview = false } = useOutletContext() || {}
   const { listingId } = useParams()
   const navigate = useNavigate()
   const isEditing = Boolean(listingId)
@@ -1007,6 +1043,7 @@ export function ListingFormPage() {
 
   async function submit(event) {
     event.preventDefault()
+    if (adminPreview) return
     const remainingImageCount = existingImages.length - removeImageIds.length
     const totalImageCount = remainingImageCount + selectedPhotos.length
     if (totalImageCount < 1 || totalImageCount > MAX_LISTING_IMAGES) {
@@ -1077,13 +1114,22 @@ export function ListingFormPage() {
             ? 'Keep your item details and photos up to date.'
             : 'Share a useful item with WMSU students. Add clear photos and a fair fixed price.'}
         </p>
-        {!isVerified && (
+        {adminPreview ? (
+          <p className="account-notice" role="status">
+            Read-only admin preview: this form is for inspection only; no listing changes can be saved.
+          </p>
+        ) : !isVerified && (
           <p className="account-notice">
             Your email and current academic-year COR must be approved before you can publish or relist an item. <Link className="text-link" to="/account">Check verification</Link>
           </p>
         )}
         {error && <p className="form-error" role="alert">{error}</p>}
         <form className="listing-form" onSubmit={submit}>
+          <fieldset
+            className="preview-readonly-controls"
+            disabled={adminPreview}
+            aria-label="Listing form controls"
+          >
           <label>
             Product title
             <input name="title" value={form.title} onChange={update} required maxLength="120" />
@@ -1106,29 +1152,7 @@ export function ListingFormPage() {
           <div className="listing-form-row">
             <label>
               Fixed price (PHP)
-              <span className="listing-price-controls">
-                <button
-                  type="button"
-                  aria-label="Decrease price by 1 peso"
-                  onClick={() => setForm((current) => ({
-                    ...current,
-                    price: (Math.max(1, Math.round((Number(current.price) || 0) * 100) - 100) / 100).toFixed(2),
-                  }))}
-                >
-                  −₱1
-                </button>
-                <input name="price" type="number" value={form.price} onChange={update} min="0.01" max="99999999.99" step="0.01" required />
-                <button
-                  type="button"
-                  aria-label="Increase price by 10 pesos"
-                  onClick={() => setForm((current) => ({
-                    ...current,
-                    price: ((Math.round((Number(current.price) || 0) * 100) + 1000) / 100).toFixed(2),
-                  }))}
-                >
-                  +₱10
-                </button>
-              </span>
+              <input name="price" type="number" value={form.price} onChange={update} min="0.01" max="99999999.99" step="0.01" required />
             </label>
             <label>
               Condition
@@ -1195,9 +1219,12 @@ export function ListingFormPage() {
               </div>
             </section>
           )}
-          <button className="primary-link" type="submit" disabled={busy || (!isVerified && !isEditing)}>
-            {busy ? 'Please wait…' : isEditing ? 'Save changes' : 'Publish listing'}
-          </button>
+          {!adminPreview && (
+            <button className="primary-link" type="submit" disabled={busy || (!isVerified && !isEditing)}>
+              {busy ? 'Please wait…' : isEditing ? 'Save changes' : 'Publish listing'}
+            </button>
+          )}
+          </fieldset>
         </form>
       </section>
     </main>

@@ -4,8 +4,6 @@ namespace App\Providers;
 
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
-use Illuminate\Auth\Notifications\VerifyEmail;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -30,16 +28,6 @@ class AppServiceProvider extends ServiceProvider
                 'token' => $token,
                 'email' => $user->email,
             ]);
-        });
-
-        VerifyEmail::createUrlUsing(function (User $user): string {
-            $frontendUrl = explode(',', (string) config('campus.frontend_url'))[0];
-            $apiUrl = URL::temporarySignedRoute('verification.verify', now()->addMinutes(60), [
-                'id' => $user->getKey(),
-                'hash' => sha1($user->getEmailForVerification()),
-            ]);
-
-            return rtrim(trim($frontendUrl), '/').'/verify-email?'.http_build_query(['url' => $apiUrl]);
         });
     }
 }

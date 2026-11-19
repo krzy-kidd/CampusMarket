@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { Button } from '../components/ui.jsx'
 import api from '../lib/api.js'
 import { safeInternalRoute } from '../lib/navigation.js'
@@ -30,6 +30,7 @@ function announceUnreadCount(unreadCount) {
 
 export default function NotificationsPage() {
   const navigate = useNavigate()
+  const { adminPreview = false } = useOutletContext() || {}
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [nextCursor, setNextCursor] = useState(null)
@@ -95,6 +96,7 @@ export default function NotificationsPage() {
   }
 
   async function markRead(notification, open = false) {
+    if (adminPreview) return
     const destination = safeInternalRoute(notification.action_url, null)
     if (notification.is_read) {
       if (open && destination) navigate(destination)
@@ -124,6 +126,7 @@ export default function NotificationsPage() {
   }
 
   async function markAllRead() {
+    if (adminPreview) return
     if (unreadCount === 0 || markingAll) return
     setMarkingAll(true)
     setError('')
@@ -147,6 +150,7 @@ export default function NotificationsPage() {
   }
 
   async function deleteNotification(notification) {
+    if (adminPreview) return
     if (busyId !== null) return
     if (!window.confirm('Delete this notification? This cannot be undone.')) return
 
@@ -172,18 +176,25 @@ export default function NotificationsPage() {
     <main className="marketplace-shell notifications-shell">
       <div className="messages-heading">
         <div>
-          <p className="eyebrow">Your account</p>
+          <p className="eyebrow">{adminPreview ? 'Admin account' : 'Your account'}</p>
           <h1>Notifications</h1>
           <p>{unreadCount ? `${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}` : 'You’re all caught up.'}</p>
         </div>
-        <Button
-          variant="secondary"
-          disabled={unreadCount === 0 || markingAll}
-          onClick={markAllRead}
-        >
-          {markingAll ? 'Marking…' : 'Mark all as read'}
-        </Button>
+        {!adminPreview && (
+          <Button
+            variant="secondary"
+            disabled={unreadCount === 0 || markingAll}
+            onClick={markAllRead}
+          >
+            {markingAll ? 'Marking…' : 'Mark all as read'}
+          </Button>
+        )}
       </div>
+      {adminPreview && (
+        <p className="account-notice" role="status">
+          Read-only admin preview: notifications are not marked as read or deleted when viewed.
+        </p>
+      )}
 
       {error && notifications.length > 0 && <p className="form-error" role="alert">{error}</p>}
       {loading ? (
@@ -206,48 +217,59 @@ export default function NotificationsPage() {
       ) : notifications.length ? (
         <>
           <section className="notification-list" aria-label="Your notifications">
-            {notifications.map((notification) => (
-              <article
-                className={`notification-card${notification.is_read ? '' : ' notification-card-unread'}`}
-                key={notification.id}
-              >
-                <div className="notification-card-content">
-                  <div className="notification-card-heading">
-                    <strong>{TYPE_LABELS[notification.notification_type] || notification.notification_type.replaceAll('_', ' ')}</strong>
-                    {!notification.is_read && <span className="notification-unread-label">Unread</span>}
+            {notifications.map((notification) => {
+              const destination = safeInternalRoute(notification.action_url, null)
+              const canNavigate = destination && (!adminPreview || !destination.startsWith('/account'))
+
+              return (
+                <article
+                  className={`notification-card${notification.is_read ? '' : ' notification-card-unread'}`}
+                  key={notification.id}
+                >
+                  <div className="notification-card-content">
+                    <div className="notification-card-heading">
+                      <strong>{TYPE_LABELS[notification.notification_type] || notification.notification_type.replaceAll('_', ' ')}</strong>
+                      {!notification.is_read && <span className="notification-unread-label">Unread</span>}
+                    </div>
+                    <p>{notification.message}</p>
+                    <time dateTime={notification.created_at}>{formatDateTime(notification.created_at)}</time>
                   </div>
-                  <p>{notification.message}</p>
-                  <time dateTime={notification.created_at}>{formatDateTime(notification.created_at)}</time>
-                </div>
-                <div className="notification-card-actions">
-                  {safeInternalRoute(notification.action_url, null) && (
-                    <Button
-                      variant="secondary"
-                      disabled={busyId !== null}
-                      onClick={() => markRead(notification, true)}
-                    >
-                      Open
-                    </Button>
-                  )}
-                  {!notification.is_read && (
-                    <Button
-                      variant="secondary"
-                      disabled={busyId !== null}
-                      onClick={() => markRead(notification)}
-                    >
-                      {busyId === notification.id ? 'Saving…' : 'Mark read'}
-                    </Button>
-                  )}
-                  <Button
-                    variant="danger"
-                    disabled={busyId !== null}
-                    onClick={() => deleteNotification(notification)}
-                  >
-                    {busyId === notification.id ? 'Deleting…' : 'Delete'}
-                  </Button>
-                </div>
-              </article>
-            ))}
+                  <div className="notification-card-actions">
+                    {canNavigate && (adminPreview ? (
+                      <Link className="secondary-link" to={destination}>
+                        View
+                      </Link>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        disabled={busyId !== null}
+                        onClick={() => markRead(notification, true)}
+                      >
+                        Open
+                      </Button>
+                    ))}
+                    {!adminPreview && !notification.is_read && (
+                      <Button
+                        variant="secondary"
+                        disabled={busyId !== null}
+                        onClick={() => markRead(notification)}
+                      >
+                        {busyId === notification.id ? 'Saving…' : 'Mark read'}
+                      </Button>
+                    )}
+                    {!adminPreview && (
+                      <Button
+                        variant="danger"
+                        disabled={busyId !== null}
+                        onClick={() => deleteNotification(notification)}
+                      >
+                        {busyId === notification.id ? 'Deleting…' : 'Delete'}
+                      </Button>
+                    )}
+                  </div>
+                </article>
+              )
+            })}
           </section>
           {nextCursor && (
             <Button
@@ -264,7 +286,7 @@ export default function NotificationsPage() {
         <section className="marketplace-empty">
           <span className="marketplace-empty-mark" aria-hidden="true">cT</span>
           <h2>No notifications yet</h2>
-          <p>Updates about messages, transactions, reviews, and verification decisions will appear here.</p>
+          <p>{adminPreview ? 'There are no notifications for this admin account.' : 'Updates about messages, transactions, reviews, and verification decisions will appear here.'}</p>
         </section>
       )}
     </main>

@@ -2,10 +2,8 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Notifications\EmailVerificationOtp;
 use Database\Factories\UserFactory;
-use Illuminate\Auth\Notifications\ResetPassword;
-use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -14,8 +12,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\HasApiTokens;
+use Throwable;
 
 #[Fillable([
     'student_id_number',
@@ -29,7 +28,13 @@ use Laravel\Sanctum\HasApiTokens;
     'section',
     'account_status',
 ])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden([
+    'password',
+    'remember_token',
+    'email_verification_code_hash',
+    'email_verification_code_expires_at',
+    'email_verification_code_attempts',
+])]
 class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
@@ -44,57 +49,36 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return [
             'email_verified_at' => 'datetime',
+            'email_verification_code_expires_at' => 'datetime',
+            'email_verification_code_attempts' => 'integer',
             'password' => 'hashed',
         ];
     }
 
-    public function sendEmailVerificationNotification()
+    public function sendEmailVerificationNotification(): void
     {
-        if (config('app.env') !== 'local') {
-            parent::sendEmailVerificationNotification();
-
+        if ($this->hasVerifiedEmail()) {
             return;
         }
 
-        $message = (new VerifyEmail)->toMail($this);
-        $this->storeDemoEmail('email_verification', $message->actionUrl, now()->addMinutes(60));
-    }
+        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $this->forceFill([
+            'email_verification_code_hash' => Hash::make($code),
+            'email_verification_code_expires_at' => now()->addMinutes(10),
+            'email_verification_code_attempts' => 0,
+        ])->save();
 
-    public function sendPasswordResetNotification(#[\SensitiveParameter] $token)
-    {
-        if (config('app.env') !== 'local') {
-            parent::sendPasswordResetNotification($token);
+        try {
+            $this->notify(new EmailVerificationOtp($code));
+        } catch (Throwable $exception) {
+            $this->forceFill([
+                'email_verification_code_hash' => null,
+                'email_verification_code_expires_at' => null,
+                'email_verification_code_attempts' => 0,
+            ])->save();
 
-            return;
+            throw $exception;
         }
-
-        $message = (new ResetPassword($token))->toMail($this);
-        $this->storeDemoEmail(
-            'password_reset',
-            $message->actionUrl,
-            now()->addMinutes((int) config('auth.passwords.users.expire', 60)),
-        );
-    }
-
-    private function storeDemoEmail(string $type, ?string $actionUrl, Carbon $expiresAt): void
-    {
-        if ($actionUrl === null || $actionUrl === '') {
-            throw new \RuntimeException('A demo email action link could not be generated.');
-        }
-
-        DemoEmail::query()
-            ->where('user_id', $this->getKey())
-            ->where('email_type', $type)
-            ->delete();
-
-        DemoEmail::query()->create([
-            'user_id' => $this->getKey(),
-            'recipient_email' => $this->email,
-            'email_type' => $type,
-            'action_url' => $actionUrl,
-            'expires_at' => $expiresAt,
-            'created_at' => now(),
-        ]);
     }
 
     public function admin(): HasOne

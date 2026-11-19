@@ -7,8 +7,8 @@ use App\Models\Admin;
 use App\Models\User;
 use App\Models\Verification;
 use App\Models\VerificationAttempt;
+use App\Notifications\EmailVerificationOtp;
 use App\Notifications\VerificationReviewed;
-use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
@@ -16,7 +16,6 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\URL;
 use Tests\TestCase;
 
 class AuthenticationAndVerificationTest extends TestCase
@@ -36,9 +35,10 @@ class AuthenticationAndVerificationTest extends TestCase
             ->assertJsonPath('message', 'Unauthenticated.');
     }
 
-    public function test_registration_requires_wmsu_email_and_verification_is_signed_and_account_bound(): void
+    public function test_registration_sends_an_otp_that_verifies_the_email(): void
     {
         Notification::fake();
+        $this->configureGmailMail();
 
         $this->postJson('/api/auth/register', $this->registrationData('student@gmail.com'))
             ->assertUnprocessable()
@@ -51,48 +51,39 @@ class AuthenticationAndVerificationTest extends TestCase
 
         $response->assertCreated()
             ->assertJsonPath('user.email', 'ty202600123@wmsu.edu.ph')
-            ->assertJsonPath('user.email_verified', false);
+            ->assertJsonPath('user.email_verified', false)
+            ->assertJsonPath('verification_email_sent', true);
 
         $user = User::query()->where('email', 'ty202600123@wmsu.edu.ph')->firstOrFail();
-        Notification::assertSentTo($user, VerifyEmail::class);
+        $code = null;
+        Notification::assertSentTo($user, EmailVerificationOtp::class, function (EmailVerificationOtp $notification) use (&$code): bool {
+            $code = $notification->code;
 
-        $signedUrl = URL::temporarySignedRoute('verification.verify', now()->addMinutes(10), [
-            'id' => $user->id,
-            'hash' => sha1($user->getEmailForVerification()),
-        ]);
+            return preg_match('/\A\d{6}\z/', $code) === 1;
+        });
 
-        $this->actingAs($user)->getJson($signedUrl)->assertOk();
+        $this->assertIsString($code);
+
+        $this->postJson('/api/auth/email/verify-code', ['code' => $code])
+            ->assertOk();
         $this->assertNotNull($user->fresh()->email_verified_at);
-
-        $otherUser = User::factory()->create();
-        $otherSignedUrl = URL::temporarySignedRoute('verification.verify', now()->addMinutes(10), [
-            'id' => $otherUser->id,
-            'hash' => sha1($otherUser->getEmailForVerification()),
-        ]);
-
-        $this->getJson($otherSignedUrl)->assertForbidden();
     }
 
-    public function test_local_email_verification_shortcut_is_unavailable_outside_local_environment(): void
+    public function test_local_email_verification_shortcut_is_unavailable(): void
     {
         $user = User::factory()->create(['email_verified_at' => null]);
 
+        config(['app.env' => 'production']);
         $this->actingAs($user)
             ->postJson('/api/auth/email/verify-local')
             ->assertNotFound();
-
         $this->assertNull($user->fresh()->email_verified_at);
 
         config(['app.env' => 'local']);
 
         $this->postJson('/api/auth/email/verify-local')
-            ->assertOk()
-            ->assertJsonPath(
-                'message',
-                'Email marked verified for local testing only. This does not verify your real email address.',
-            );
-
-        $this->assertNotNull($user->fresh()->email_verified_at);
+            ->assertNotFound();
+        $this->assertNull($user->fresh()->email_verified_at);
     }
 
     public function test_registration_matches_student_id_to_wmsu_email_and_normalizes_hyphenated_ids(): void
@@ -172,6 +163,42 @@ class AuthenticationAndVerificationTest extends TestCase
         ])->assertOk();
 
         $this->assertTrue(Hash::check('Reset123', $user->fresh()->password));
+    }
+
+    public function test_verification_code_is_not_queued_when_gmail_app_password_is_missing(): void
+    {
+        Notification::fake();
+        $this->configureGmailMail('');
+        $user = User::factory()->unverified()->create();
+
+        $this->actingAs($user)->postJson('/api/auth/email/verification-code')
+            ->assertServiceUnavailable()
+            ->assertJsonPath('message', 'Email delivery is not configured. Set up SMTP in the backend environment before requesting a code.');
+
+        Notification::assertNothingSent();
+        $this->assertNull($user->fresh()->email_verification_code_hash);
+    }
+
+    public function test_verification_code_is_emailed_and_only_its_hash_is_stored(): void
+    {
+        Notification::fake();
+        $this->configureGmailMail();
+        $user = User::factory()->unverified()->create();
+
+        $this->actingAs($user)->postJson('/api/auth/email/verification-code')
+            ->assertOk()
+            ->assertJsonPath('message', 'A new 6-digit verification code has been sent to your WMSU email address.');
+
+        $code = null;
+        Notification::assertSentTo($user, EmailVerificationOtp::class, function (EmailVerificationOtp $notification) use (&$code): bool {
+            $code = $notification->code;
+
+            return preg_match('/\A\d{6}\z/', $code) === 1;
+        });
+
+        $this->assertNotNull($code);
+        $this->assertTrue(Hash::check($code, $user->fresh()->email_verification_code_hash));
+        $this->assertNotNull($user->fresh()->email_verification_code_expires_at);
     }
 
     public function test_cor_requires_a_current_academic_year_and_uploads_to_private_storage(): void
@@ -340,6 +367,17 @@ class AuthenticationAndVerificationTest extends TestCase
             'password' => 'SecurePassword2026',
             'password_confirmation' => 'SecurePassword2026',
         ];
+    }
+
+    private function configureGmailMail(string $password = 'test-app-password'): void
+    {
+        config([
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.host' => 'smtp.gmail.com',
+            'mail.mailers.smtp.username' => 'student@wmsu.edu.ph',
+            'mail.mailers.smtp.password' => $password,
+            'mail.from.address' => 'student@wmsu.edu.ph',
+        ]);
     }
 
     private function createCurrentAcademicYear(): AcademicYear

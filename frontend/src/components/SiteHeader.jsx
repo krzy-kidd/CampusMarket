@@ -26,6 +26,13 @@ export default function SiteHeader({ variant = 'default', pathname = '' }) {
     || (to === '/marketplace' && isMarketplace)
     || (to === '/my-listings' && /^\/listings\/[^/]+\/edit$/.test(pathname))
     || (to !== '/admin' && to !== '/marketplace' && pathname.startsWith(`${to}/`))
+  const isAdminPreview = Boolean(
+    session.status === 'signed-in'
+    && session.user.admin_role
+    && !isAdmin
+    && pathname !== '/account'
+    && !isAuth,
+  )
 
   useEffect(() => {
     if (isAuth) return undefined
@@ -136,7 +143,21 @@ export default function SiteHeader({ variant = 'default', pathname = '' }) {
           (isAdmin || session.user.admin_role
             ? [
                 { label: 'Admin dashboard', to: '/admin' },
-                { label: 'Account', to: '/account' },
+                ...(isAdminPreview
+                  ? [
+                      { label: 'Student home', to: '/' },
+                      { label: 'Dashboard', to: '/dashboard' },
+                      { label: 'Marketplace', to: '/marketplace' },
+                      { label: 'Sell preview', to: '/listings/new' },
+                      { label: 'My listings', to: '/my-listings' },
+                      { label: 'Messages', to: '/messages' },
+                      { label: 'Transactions', to: '/transactions' },
+                      { label: 'Notifications', to: '/notifications' },
+                    ]
+                  : [
+                      { label: 'Preview student site', to: '/' },
+                      { label: 'Account', to: '/account' },
+                    ]),
               ]
             : [
                 { label: 'Dashboard', to: '/dashboard' },
