@@ -3,6 +3,27 @@ import { Link } from 'react-router-dom'
 import api from '../lib/api.js'
 import { getCurrentUser } from '../lib/session.js'
 
+let navigationSummaryRequest = null
+let navigationSummaryUserId = null
+
+function getNavigationSummary(userId) {
+  if (!navigationSummaryRequest || navigationSummaryUserId !== userId) {
+    const request = api.get('/api/auth/navigation-summary')
+    navigationSummaryRequest = request
+    navigationSummaryUserId = userId
+
+    const clearRequest = () => {
+      if (navigationSummaryRequest === request) {
+        navigationSummaryRequest = null
+        navigationSummaryUserId = null
+      }
+    }
+    request.then(clearRequest, clearRequest)
+  }
+
+  return navigationSummaryRequest
+}
+
 export default function SiteHeader({ variant = 'default', pathname = '' }) {
   const isAuth = variant === 'auth'
   const isAdmin = variant === 'admin'
@@ -62,8 +83,12 @@ export default function SiteHeader({ variant = 'default', pathname = '' }) {
     const updateUnreadCount = (event) => {
       setUnreadNotifications(Number(event.detail?.unreadCount) || 0)
     }
+    let activeRequest = false
     const loadNavigationSummary = () => {
-      api.get('/api/auth/navigation-summary')
+      if (document.visibilityState !== 'visible' || activeRequest) return
+
+      activeRequest = true
+      getNavigationSummary(session.user.id)
         .then(({ data }) => {
           if (!active) return
           setUnreadNotifications(Number(data.unread_notifications) || 0)
@@ -76,11 +101,15 @@ export default function SiteHeader({ variant = 'default', pathname = '' }) {
             console.error('Could not load navigation counts.', error)
           }
         })
+        .finally(() => {
+          activeRequest = false
+        })
     }
 
     loadNavigationSummary()
     const intervalId = window.setInterval(loadNavigationSummary, 60000)
     window.addEventListener('focus', loadNavigationSummary)
+    document.addEventListener('visibilitychange', loadNavigationSummary)
     window.addEventListener('recreo:notifications-updated', updateUnreadCount)
     window.addEventListener('recreo:messages-updated', loadNavigationSummary)
     window.addEventListener('recreo:transactions-updated', loadNavigationSummary)
@@ -90,6 +119,7 @@ export default function SiteHeader({ variant = 'default', pathname = '' }) {
       active = false
       window.clearInterval(intervalId)
       window.removeEventListener('focus', loadNavigationSummary)
+      document.removeEventListener('visibilitychange', loadNavigationSummary)
       window.removeEventListener('recreo:notifications-updated', updateUnreadCount)
       window.removeEventListener('recreo:messages-updated', loadNavigationSummary)
       window.removeEventListener('recreo:transactions-updated', loadNavigationSummary)
